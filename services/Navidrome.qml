@@ -118,14 +118,19 @@ Singleton {
             property string password
             property string passwordCommand
 
-            onPasswordCommandChanged: if (passwordCommand) passwordProc.running = true
+            // Set the command here: a binding on it would update only after this handler runs.
+            onPasswordCommandChanged: {
+                if (!passwordCommand)
+                    return;
+                passwordProc.command = ["sh", "-c", passwordCommand];
+                passwordProc.running = true;
+            }
         }
     }
 
     Process {
         id: passwordProc
 
-        command: ["sh", "-c", settings.passwordCommand]
         stdout: StdioCollector {
             onStreamFinished: root.commandPassword = text.split("\n")[0]
         }

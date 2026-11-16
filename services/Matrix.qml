@@ -46,15 +46,57 @@ Singleton {
 
     // An mxc:// URI through gomuks. This asks for the original image: gomuks's avatar
     // thumbnails are WebP, which this Qt can't decode without qtimageformats.
-    function mediaUrl(mxc: string): string {
+    // Encrypted media needs the flag; gomuks has the keys from the event.
+    function mediaUrl(mxc: string, encrypted: bool): string {
         const m = (mxc ?? "").match(/^mxc:\/\/([^/]+)\/(.+)$/);
         if (!m || !imageToken)
             return "";
-        return `${url}/_gomuks/media/${m[1]}/${m[2]}?image_auth=${encodeURIComponent(imageToken)}`;
+        return `${url}/_gomuks/media/${m[1]}/${m[2]}?${encrypted ? "encrypted=true&" : ""}image_auth=${encodeURIComponent(imageToken)}`;
+    }
+
+    // { thumb, full, w, h } for images and stickers, else null.
+    function image(evt: var): var {
+        if (!evt || evt.redacted_by)
+            return null;
+        const type = evt.decrypted_type || evt.type;
+        const c = evt.decrypted ?? evt.content ?? {};
+        if (type !== "m.sticker" && !(type === "m.room.message" && c.msgtype === "m.image"))
+            return null;
+        const full = mediaUrl(c.file?.url ?? c.url, !!c.file);
+        const thumbFile = c.info?.thumbnail_file;
+        const thumbUrl = c.info?.thumbnail_url;
+        return {
+            full,
+            thumb: thumbFile ? mediaUrl(thumbFile.url, true) : thumbUrl ? mediaUrl(thumbUrl, false) : full,
+            w: c.info?.w ?? 0,
+            h: c.info?.h ?? 0
+        };
+    }
+
+    // An image's caption: its body, when that isn't just the file name.
+    function caption(evt: var): string {
+        const c = evt.decrypted ?? evt.content ?? {};
+        return c.filename && c.body && c.body !== c.filename ? c.body : "";
+    }
+
+    // Adds the reaction, or takes it back if it's already ours.
+    function react(roomId: string, evt: var, key: string): void {
+        const own = evt.own_reactions?.[key] ?? [];
+        if (own.length > 0) {
+            for (const id of own)
+                if (!id.startsWith("~"))
+                    exec("redact_event", { room_id: roomId, event_id: id }, null);
+        } else {
+            exec("send_event", {
+                room_id: roomId,
+                type: "m.reaction",
+                content: { "m.relates_to": { rel_type: "m.annotation", event_id: evt.event_id, key } }
+            }, null);
+        }
     }
 
     function senderAvatar(roomId: string, userId: string): string {
-        return mediaUrl(avatars[roomId]?.[userId] ?? "");
+        return mediaUrl(avatars[roomId]?.[userId] ?? "", false);
     }
 
     // Members (names, avatars) of a room; fetched from the server if gomuks doesn't have them yet.
@@ -153,7 +195,17 @@ Singleton {
         return rooms[roomId];
     }
 
+    // Timeline position; events that don't have one yet (local echoes) go last.
+    function position(rowid: var): real {
+        return events[rowid]?.timeline_rowid || Infinity;
+    }
+
     function addEvent(evt: var, toTimeline: bool): void {
+        // Updated copies (e.g. a message whose reactions changed) come straight from gomuks's
+        // database without a timeline position; keep the one we know.
+        const old = events[evt.rowid];
+        if (old?.timeline_rowid && !evt.timeline_rowid)
+            evt.timeline_rowid = old.timeline_rowid;
         events[evt.rowid] = evt;
         if (evt.type === "m.room.member" && evt.state_key) {
             if (evt.content?.displayname) {
@@ -171,7 +223,11 @@ Singleton {
             const r = ensureRoom(evt.room_id);
             if (!r.timeline.includes(evt.rowid)) {
                 r.timeline.push(evt.rowid);
-                r.timeline.sort((a, b) => (events[a]?.timeline_rowid ?? 0) - (events[b]?.timeline_rowid ?? 0));
+                r.timeline.sort((a, b) => {
+                    const pa = position(a);
+                    const pb = position(b);
+                    return pa === pb ? 0 : pa < pb ? -1 : 1;
+                });
             }
         }
     }
@@ -247,14 +303,19 @@ Singleton {
             property string password
             property string passwordCommand
 
-            onPasswordCommandChanged: if (passwordCommand) passwordProc.running = true
+            // Set the command here: a binding on it would update only after this handler runs.
+            onPasswordCommandChanged: {
+                if (!passwordCommand)
+                    return;
+                passwordProc.command = ["sh", "-c", passwordCommand];
+                passwordProc.running = true;
+            }
         }
     }
 
     Process {
         id: passwordProc
 
-        command: ["sh", "-c", settings.passwordCommand]
         stdout: StdioCollector {
             onStreamFinished: root.commandPassword = text.split("\n")[0]
         }

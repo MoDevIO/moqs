@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import Quickshell
+import Quickshell.Widgets
 import qs.config
 import qs.services
 
@@ -19,21 +20,26 @@ Item {
         return roomId ? Matrix.rooms[roomId] ?? null : null;
     }
 
-    // Shown messages of the open room, newest last: [{ evt, text, own, first }]
+    // Shown messages of the open room, newest last: [{ evt, text, image, own, first }]
     readonly property var messages: {
         Matrix.version;
         const out = [];
         let prev = "";
         for (const rowid of room?.timeline ?? []) {
             const evt = Matrix.events[rowid];
-            const text = Matrix.text(evt);
-            if (!text)
+            const image = Matrix.image(evt);
+            const text = image ? Matrix.caption(evt) : Matrix.text(evt);
+            if (!text && !image)
                 continue;
-            out.push({ evt, text, own: evt.sender === Matrix.userId, first: evt.sender !== prev });
+            out.push({ evt, text, image, own: evt.sender === Matrix.userId, first: evt.sender !== prev });
             prev = evt.sender;
         }
         return out;
     }
+
+    // The message whose reaction picker is open.
+    property string pickerFor
+    readonly property list<string> quickReactions: ["👍", "❤️", "😂", "😮", "😢", "🎉"]
 
     readonly property string statusText: {
         if (!Matrix.configured)
@@ -49,6 +55,7 @@ Item {
 
     function openRoom(id: string): void {
         roomId = id;
+        pickerFor = "";
         const r = Matrix.rooms[id];
         if ((r?.timeline.length ?? 0) < 30)
             Matrix.paginate(id);
@@ -217,7 +224,7 @@ Item {
                             Layout.preferredWidth: 32
                             Layout.preferredHeight: 32
                             name: Matrix.roomName(roomRow.modelData)
-                            source: Matrix.mediaUrl(roomRow.meta.avatar ?? "")
+                            source: Matrix.mediaUrl(roomRow.meta.avatar ?? "", false)
                         }
 
                         ColumnLayout {
@@ -293,78 +300,243 @@ Item {
                     id: msg
 
                     required property var modelData
+                    readonly property var evt: modelData.evt
+                    readonly property bool own: modelData.own
                     // Room for the avatar beside others' messages.
-                    readonly property int indent: modelData.own ? 0 : 32
+                    readonly property int indent: own ? 0 : 32
+                    readonly property var reactions: Object.entries(evt.reactions ?? {}).filter(([, n]) => n > 0)
 
                     width: timeline.width
                     topPadding: modelData.first ? 8 : 0
-                    spacing: 2
+                    spacing: 4
+
+                    HoverHandler {
+                        id: hover
+                    }
 
                     Text {
-                        visible: msg.modelData.first && !msg.modelData.own
+                        visible: msg.modelData.first && !msg.own
                         leftPadding: msg.indent + 10
-                        text: Matrix.senderName(root.roomId, msg.modelData.evt.sender)
+                        text: Matrix.senderName(root.roomId, msg.evt.sender)
                         color: Config.colours.subtext
                         font.family: Config.font.family
                         font.pointSize: Config.font.small
                         font.bold: true
                     }
 
-                    Rectangle {
-                        anchors.right: msg.modelData.own ? parent.right : undefined
-                        x: msg.indent
-                        width: Math.min(body.implicitWidth, timeline.width * 0.8 - msg.indent) + 24
-                        height: body.implicitHeight + 14
-                        radius: 14
-                        color: msg.modelData.own ? Config.colours.active : Config.colours.card
+                    Item {
+                        width: parent.width
+                        height: bubble.height
 
-                        Text {
-                            id: body
+                        Rectangle {
+                            id: bubble
 
-                            anchors.fill: parent
-                            anchors.leftMargin: 12
-                            anchors.rightMargin: 12
-                            anchors.topMargin: 7
-                            anchors.bottomMargin: 7
-                            text: msg.modelData.text
-                            wrapMode: Text.Wrap
-                            textFormat: Text.PlainText
-                            color: msg.modelData.own ? Config.colours.activeText : Config.colours.text
-                            font.family: Config.font.family
-                            font.pointSize: Config.font.small
-                            font.italic: msg.modelData.evt.decrypted_type === undefined && msg.modelData.evt.type === "m.room.encrypted"
+                            readonly property real maxWidth: timeline.width * 0.75 - msg.indent
+
+                            x: msg.own ? parent.width - width : msg.indent
+                            width: Math.max(picture.visible ? picture.width + 8 : 0, body.visible ? Math.min(body.implicitWidth, maxWidth) + 24 : 0)
+                            height: content.implicitHeight + (body.visible ? 14 : 8)
+                            radius: 14
+                            color: msg.own ? Config.colours.active : Config.colours.card
+
+                            Column {
+                                id: content
+
+                                anchors.centerIn: parent
+                                spacing: 6
+
+                                // Image or sticker, scaled to fit; click for the full size.
+                                ClippingRectangle {
+                                    id: picture
+
+                                    readonly property real ratio: msg.modelData.image && msg.modelData.image.w > 0 ? msg.modelData.image.h / msg.modelData.image.w : 0.75
+                                    readonly property real fitWidth: Math.min(240, bubble.maxWidth, msg.modelData.image?.w || 240)
+
+                                    visible: !!msg.modelData.image
+                                    width: fitWidth * ratio > 280 ? 280 / ratio : fitWidth
+                                    height: width * ratio
+                                    radius: 10
+                                    color: Config.colours.button
+
+                                    Text {
+                                        anchors.centerIn: parent
+                                        visible: pic.status !== Image.Ready
+                                        text: pic.status === Image.Error ? "Can't show image" : "\u{F02E9}"
+                                        color: Config.colours.subtext
+                                        font.family: Config.font.family
+                                        font.pointSize: pic.status === Image.Error ? Config.font.small : 18
+                                    }
+
+                                    Image {
+                                        id: pic
+
+                                        anchors.fill: parent
+                                        source: msg.modelData.image?.thumb ?? ""
+                                        sourceSize: Qt.size(parent.width * 2, parent.height * 2)
+                                        fillMode: Image.PreserveAspectCrop
+                                        asynchronous: true
+                                        cache: true
+                                    }
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: Qt.openUrlExternally(msg.modelData.image.full)
+                                    }
+                                }
+
+                                Text {
+                                    id: body
+
+                                    visible: text !== ""
+                                    width: Math.min(implicitWidth, bubble.maxWidth)
+                                    text: msg.modelData.text
+                                    wrapMode: Text.Wrap
+                                    textFormat: Text.PlainText
+                                    color: msg.own ? Config.colours.activeText : Config.colours.text
+                                    font.family: Config.font.family
+                                    font.pointSize: Config.font.small
+                                    font.italic: msg.evt.type === "m.room.encrypted" && !msg.evt.decrypted_type
+                                }
+                            }
                         }
 
                         // Sender's avatar beside the first message of a run.
                         Avatar {
-                            anchors.right: parent.left
+                            anchors.right: bubble.left
                             anchors.rightMargin: 8
-                            anchors.top: parent.top
+                            anchors.top: bubble.top
                             width: 24
                             height: 24
-                            visible: msg.modelData.first && !msg.modelData.own
-                            name: Matrix.senderName(root.roomId, msg.modelData.evt.sender)
-                            source: visible ? Matrix.senderAvatar(root.roomId, msg.modelData.evt.sender) : ""
+                            visible: msg.modelData.first && !msg.own
+                            name: Matrix.senderName(root.roomId, msg.evt.sender)
+                            source: visible ? Matrix.senderAvatar(root.roomId, msg.evt.sender) : ""
                         }
 
-                        MouseArea {
-                            id: bubbleArea
-
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            acceptedButtons: Qt.NoButton
-                        }
-
-                        Text {
-                            anchors.verticalCenter: parent.verticalCenter
-                            anchors.right: msg.modelData.own ? parent.left : undefined
-                            anchors.left: msg.modelData.own ? undefined : parent.right
+                        // Time and react button on the free side of the bubble while hovered.
+                        Row {
+                            anchors.verticalCenter: bubble.verticalCenter
+                            anchors.right: msg.own ? bubble.left : undefined
+                            anchors.left: msg.own ? undefined : bubble.right
                             anchors.margins: 8
-                            visible: bubbleArea.containsMouse
-                            text: root.time(msg.modelData.evt.timestamp)
-                            color: Config.colours.muted
-                            font.family: Config.font.family
-                            font.pointSize: Config.font.small
+                            layoutDirection: msg.own ? Qt.RightToLeft : Qt.LeftToRight
+                            spacing: 6
+                            visible: hover.hovered || root.pickerFor === msg.evt.event_id
+
+                            Text {
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: root.time(msg.evt.timestamp)
+                                color: Config.colours.muted
+                                font.family: Config.font.family
+                                font.pointSize: Config.font.small
+                            }
+
+                            Rectangle {
+                                width: 24
+                                height: 24
+                                radius: 12
+                                visible: !msg.evt.event_id.startsWith("~")
+                                color: reactArea.containsMouse || root.pickerFor === msg.evt.event_id ? Config.colours.buttonHover : "transparent"
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "\u{F01F5}"
+                                    color: Config.colours.subtext
+                                    font.family: Config.font.family
+                                    font.pointSize: Config.font.size
+                                }
+
+                                MouseArea {
+                                    id: reactArea
+
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.pickerFor = root.pickerFor === msg.evt.event_id ? "" : msg.evt.event_id
+                                }
+                            }
+                        }
+                    }
+
+                    // Quick reaction picker
+                    Row {
+                        x: msg.own ? parent.width - width : msg.indent
+                        visible: root.pickerFor === msg.evt.event_id
+                        spacing: 2
+
+                        Repeater {
+                            model: root.quickReactions
+
+                            Rectangle {
+                                required property string modelData
+
+                                width: 32
+                                height: 32
+                                radius: 16
+                                color: pickArea.containsMouse ? Config.colours.buttonHover : Config.colours.card
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: parent.modelData
+                                    font.pointSize: Config.font.size
+                                }
+
+                                MouseArea {
+                                    id: pickArea
+
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        Matrix.react(root.roomId, msg.evt, parent.modelData);
+                                        root.pickerFor = "";
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Reactions; yours are white. Click one to add or take back yours.
+                    Flow {
+                        x: msg.own ? parent.width - width : msg.indent
+                        width: Math.min(implicitWidth, parent.width - msg.indent)
+                        visible: msg.reactions.length > 0
+                        spacing: 4
+                        layoutDirection: msg.own ? Qt.RightToLeft : Qt.LeftToRight
+
+                        Repeater {
+                            model: msg.reactions
+
+                            Rectangle {
+                                id: chip
+
+                                required property var modelData
+                                readonly property bool mine: (msg.evt.own_reactions?.[modelData[0]]?.length ?? 0) > 0
+
+                                width: chipText.implicitWidth + 16
+                                height: 24
+                                radius: 12
+                                color: mine ? Config.colours.active : chipArea.containsMouse ? Config.colours.buttonHover : Config.colours.card
+
+                                Text {
+                                    id: chipText
+
+                                    anchors.centerIn: parent
+                                    text: `${chip.modelData[0]} ${chip.modelData[1]}`
+                                    color: chip.mine ? Config.colours.activeText : Config.colours.text
+                                    font.family: Config.font.family
+                                    font.pointSize: Config.font.small
+                                }
+
+                                MouseArea {
+                                    id: chipArea
+
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: Matrix.react(root.roomId, msg.evt, chip.modelData[0])
+                                }
+                            }
                         }
                     }
                 }
