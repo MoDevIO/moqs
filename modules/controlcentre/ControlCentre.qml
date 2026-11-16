@@ -170,6 +170,10 @@ Item {
                 onMoved: v => Brightness.set(v)
             }
 
+            NowPlaying {
+                Layout.fillWidth: true
+            }
+
             Item {
                 implicitHeight: Config.controlCentre.padding - Config.controlCentre.spacing
             }
