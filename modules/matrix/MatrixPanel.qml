@@ -11,6 +11,8 @@ Item {
 
     property bool open: false
     property string roomId
+    // Room list search: filters rooms by name and searches messages.
+    property string query
 
     readonly property real targetWidth: open ? Config.matrix.width : 0
     readonly property real targetHeight: open ? Config.matrix.height : 0
@@ -51,6 +53,10 @@ Item {
         if (Matrix.status !== "ready")
             return "Syncing…";
         return "";
+    }
+
+    function clearSearch(): void {
+        search.text = "";
     }
 
     function openRoom(id: string): void {
@@ -173,6 +179,66 @@ Item {
                 font.pointSize: Config.font.small
             }
 
+            // Search
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.leftMargin: Config.controlCentre.padding
+                Layout.rightMargin: Config.controlCentre.padding
+                visible: Matrix.configured && Matrix.loggedIn && !root.roomId
+                implicitHeight: 36
+                radius: height / 2
+                color: Config.colours.card
+
+                Text {
+                    id: searchIcon
+
+                    anchors.left: parent.left
+                    anchors.leftMargin: 14
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "\u{F0349}"
+                    color: Config.colours.subtext
+                    font.family: Config.font.family
+                    font.pointSize: Config.font.size
+                }
+
+                TextInput {
+                    id: search
+
+                    anchors.left: searchIcon.right
+                    anchors.right: parent.right
+                    anchors.leftMargin: 10
+                    anchors.rightMargin: 14
+                    anchors.verticalCenter: parent.verticalCenter
+                    color: Config.colours.text
+                    selectionColor: Config.colours.subtext
+                    font.family: Config.font.family
+                    font.pointSize: Config.font.small
+                    clip: true
+
+                    onTextChanged: {
+                        root.query = text.trim();
+                        searchDelay.restart();
+                    }
+                    Keys.onEscapePressed: text = ""
+
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: !search.text
+                        text: "Search rooms and messages"
+                        color: Config.colours.muted
+                        font: search.font
+                    }
+
+                    // Rooms filter as you type; messages wait for a pause.
+                    Timer {
+                        id: searchDelay
+
+                        interval: 300
+                        onTriggered: Matrix.searchMessages(search.text)
+                    }
+                }
+            }
+
             // Rooms
             ListView {
                 id: rooms
@@ -186,7 +252,135 @@ Item {
                 clip: true
                 spacing: 2
                 boundsBehavior: Flickable.StopAtBounds
-                model: Matrix.roomList
+                model: {
+                    Matrix.version;
+                    return root.query ? Matrix.findRooms(root.query) : Matrix.roomList;
+                }
+
+                header: Text {
+                    width: rooms.width
+                    height: visible ? implicitHeight : 0
+                    visible: root.query !== "" && rooms.count > 0
+                    leftPadding: 8
+                    bottomPadding: 4
+                    text: "Rooms"
+                    color: Config.colours.muted
+                    font.family: Config.font.family
+                    font.pointSize: Config.font.small
+                }
+
+                // Message results under the matching rooms.
+                footer: Column {
+                    width: rooms.width
+                    visible: root.query !== ""
+                    height: visible ? implicitHeight : 0
+                    topPadding: 8
+                    spacing: 2
+
+                    Text {
+                        leftPadding: 8
+                        bottomPadding: 4
+                        text: "Messages"
+                        color: Config.colours.muted
+                        font.family: Config.font.family
+                        font.pointSize: Config.font.small
+                    }
+
+                    Text {
+                        visible: !Matrix.searchResults?.length
+                        leftPadding: 8
+                        text: Matrix.searching || !Matrix.searchResults ? "Searching…" : "No messages found"
+                        color: Config.colours.subtext
+                        font.family: Config.font.family
+                        font.pointSize: Config.font.small
+                    }
+
+                    Repeater {
+                        model: Matrix.searchResults ?? []
+
+                        Rectangle {
+                            id: hit
+
+                            required property var modelData
+                            readonly property var room: Matrix.rooms[modelData.room_id]
+
+                            width: rooms.width
+                            implicitHeight: hitLayout.implicitHeight + 16
+                            radius: 14
+                            color: hitArea.containsMouse ? Config.colours.buttonHover : "transparent"
+
+                            MouseArea {
+                                id: hitArea
+
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    const id = hit.modelData.room_id;
+                                    root.clearSearch();
+                                    root.openRoom(id);
+                                }
+                            }
+
+                            RowLayout {
+                                id: hitLayout
+
+                                anchors.fill: parent
+                                anchors.leftMargin: 8
+                                anchors.rightMargin: 12
+                                anchors.topMargin: 8
+                                anchors.bottomMargin: 8
+                                spacing: 10
+
+                                Avatar {
+                                    Layout.alignment: Qt.AlignTop
+                                    Layout.preferredWidth: 32
+                                    Layout.preferredHeight: 32
+                                    name: Matrix.senderName(hit.modelData.room_id, hit.modelData.sender)
+                                    source: Matrix.senderAvatar(hit.modelData.room_id, hit.modelData.sender)
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 1
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: `${Matrix.senderName(hit.modelData.room_id, hit.modelData.sender)} · ${Matrix.roomName(hit.room)}`
+                                            elide: Text.ElideRight
+                                            color: Config.colours.text
+                                            font.family: Config.font.family
+                                            font.pointSize: Config.font.small
+                                            font.bold: true
+                                        }
+
+                                        Text {
+                                            text: root.time(hit.modelData.timestamp)
+                                            color: Config.colours.muted
+                                            font.family: Config.font.family
+                                            font.pointSize: Config.font.small
+                                        }
+                                    }
+
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: Matrix.text(hit.modelData) || Matrix.caption(hit.modelData) || "Image"
+                                        wrapMode: Text.Wrap
+                                        maximumLineCount: 2
+                                        elide: Text.ElideRight
+                                        textFormat: Text.PlainText
+                                        color: Config.colours.subtext
+                                        font.family: Config.font.family
+                                        font.pointSize: Config.font.small
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
 
                 delegate: Rectangle {
                     id: roomRow

@@ -161,6 +161,46 @@ Singleton {
         xhr.send(JSON.stringify(params));
     }
 
+    // Message search over gomuks's local, decrypted copy, so encrypted rooms are included.
+    // null while there's no query.
+    property var searchResults: null
+    property bool searching: false
+    property int searchSeq: 0
+
+    function searchMessages(query: string): void {
+        const seq = ++searchSeq;
+        const words = query.trim().split(/\s+/).filter(w => w);
+        if (words.length === 0) {
+            searchResults = null;
+            searching = false;
+            return;
+        }
+        // Quote each word so fts5 syntax characters are matched literally; the last word
+        // also matches as a prefix, so results show up while typing.
+        const term = words.map(w => `"${w.replace(/"/g, '""')}"`).join(" ") + "*";
+        searching = true;
+        exec("search_local", { search_term: term, limit: 40, sort_by_time: true }, res => {
+            // A newer query has started since; drop this answer.
+            if (seq !== searchSeq)
+                return;
+            searching = false;
+            const found = (res?.events ?? []).filter(evt => text(evt) || image(evt));
+            for (const evt of found)
+                addEvent(evt, false);
+            searchResults = found;
+            // Sender names and avatars for rooms whose members we haven't seen yet.
+            for (const id of new Set(found.map(evt => evt.room_id)))
+                if (!names[id])
+                    loadMembers(id);
+        });
+    }
+
+    // Rooms whose name contains the query, most recent first.
+    function findRooms(query: string): var {
+        const q = query.trim().toLowerCase();
+        return Object.values(rooms).filter(r => r.meta && roomName(r).toLowerCase().includes(q)).sort((a, b) => (b.meta.sorting_timestamp ?? 0) - (a.meta.sorting_timestamp ?? 0));
+    }
+
     function send(roomId: string, message: string): void {
         if (message.trim())
             exec("send_message", { room_id: roomId, text: message }, null);
