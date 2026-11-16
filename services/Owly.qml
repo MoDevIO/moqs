@@ -9,7 +9,9 @@ Singleton {
     id: root
 
     property bool radioUp: false
-    readonly property alias receiving: receiver.running
+    // What the user chose; the receiver is kept running while this is on, whatever the
+    // control centre does, and restarted if it dies.
+    property bool receiving: false
     property string error: ""
 
     // Nearby AirDrop receivers: [{ name, addr }]
@@ -57,7 +59,25 @@ Singleton {
 
     function setReceiving(on: bool): void {
         error = "";
-        receiver.running = on;
+        receiving = on;
+        if (on) {
+            startReceiver();
+        } else {
+            receiver.running = false;
+            // Also stop receivers this shell lost track of (an earlier instance, a quick
+            // on/off), which would otherwise keep AirDrop on.
+            killReceivers.command = ["pkill", "-TERM", "-f", "owly receive"];
+            killReceivers.running = true;
+        }
+    }
+
+    // Clears stale receivers first: one still holding the port would make ours fail.
+    // If a cleanup is already under way, it starts the receiver when it's done.
+    function startReceiver(): void {
+        if (receiver.running || killReceivers.running)
+            return;
+        killReceivers.command = ["pkill", "-TERM", "-f", "owly receive"];
+        killReceivers.running = true;
     }
 
     // Rust Debug-formatted string contents -> plain text.
@@ -129,6 +149,21 @@ Singleton {
         }
 
         onExited: request = null
+    }
+
+    // After clearing receivers, start ours if receiving is (still, or again) wanted.
+    Process {
+        id: killReceivers
+
+        onExited: if (root.receiving && !receiver.running) receiver.running = true
+    }
+
+    // Brings the receiver back while receiving is on, e.g. after the radio dropped.
+    Timer {
+        running: root.receiving && root.radioUp && !receiver.running && !killReceivers.running
+        interval: 5000
+        repeat: true
+        onTriggered: root.startReceiver()
     }
 
     // Item lines arrive right after the request line; ask once they're in.
