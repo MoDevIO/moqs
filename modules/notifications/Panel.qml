@@ -55,6 +55,8 @@ Item {
             padding: Config.notifs.padding
             spacing: Config.notifs.spacing
             opacity: root.centreOpen ? 0 : 1
+            // A faded-out layer still catches clicks, so hide it once the fade is done.
+            visible: opacity > 0
 
             Behavior on opacity {
                 Anim {}
@@ -80,6 +82,8 @@ Item {
             height: root.maxHeight
             spacing: Config.notifs.spacing
             opacity: root.centreOpen ? 1 : 0
+            // Otherwise the invisible centre sits on top of the popups and swallows their clicks.
+            visible: opacity > 0
 
             readonly property real wantedHeight: header.implicitHeight + Config.notifs.padding * 2 + Config.notifs.spacing + (Notifs.list.length > 0 ? list.contentHeight : empty.implicitHeight)
 
