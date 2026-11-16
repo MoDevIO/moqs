@@ -75,6 +75,7 @@ in
             brightnessctl
             curl
             libnotify
+            wl-clipboard
           ]
           ++ lib.optional cfg.navidrome.enable mpv
           ++ lib.optional cfg.matrix.enable gomuks-web;

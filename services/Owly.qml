@@ -99,8 +99,10 @@ Singleton {
         stdout: SplitParser {
             onRead: line => {
                 const url = line.match(/^"(.*)"$/);
-                const text = url ? root.unquote(url[1]) : line;
-                notify.exec(["notify-send", "-a", "AirDrop", "-i", "document-save", url ? "Link received" : "File received", text]);
+                if (url)
+                    linkPrompt.createObject(root, { link: root.unquote(url[1]) });
+                else
+                    notify.exec(["notify-send", "-a", "AirDrop", "-i", "document-save", "File received", line]);
             }
         }
 
@@ -163,6 +165,32 @@ Singleton {
 
     Process {
         id: notify
+    }
+
+    // A received link, with Open and Copy buttons. notify-send waits for the click and prints it.
+    Component {
+        id: linkPrompt
+
+        Process {
+            id: prompt
+
+            required property string link
+
+            running: true
+            command: ["notify-send", "-a", "AirDrop", "-i", "document-save", "-A", "open=Open", "-A", "copy=Copy", "Link received", link]
+            stdout: StdioCollector {
+                onStreamFinished: {
+                    const action = text.trim();
+                    if (action === "open")
+                        Qt.openUrlExternally(prompt.link);
+                    else if (action === "copy")
+                        // wl-copy rather than Quickshell.clipboardText: Wayland only lets a focused
+                        // window set the clipboard, and the shell usually isn't focused.
+                        Quickshell.execDetached(["wl-copy", "--", prompt.link]);
+                }
+            }
+            onExited: destroy()
+        }
     }
 
     Process {
