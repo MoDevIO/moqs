@@ -1,0 +1,48 @@
+import QtQuick
+import Quickshell
+import qs.config
+import qs.services
+
+// Bar content area inside the thick top border.
+Item {
+    id: root
+
+    required property ShellScreen screen
+
+    signal clockClicked
+
+    Workspaces {
+        anchors.left: parent.left
+        anchors.leftMargin: Config.bar.padding
+        anchors.verticalCenter: parent.verticalCenter
+        screen: root.screen
+    }
+
+    Clock {
+        anchors.centerIn: parent
+        onClicked: root.clockClicked()
+    }
+
+    Row {
+        anchors.right: parent.right
+        anchors.rightMargin: Config.bar.padding
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: 14
+
+        UsageBar {
+            anchors.verticalCenter: parent.verticalCenter
+            icon: "\u{F0EE0}"
+            value: SystemUsage.cpu
+        }
+
+        UsageBar {
+            anchors.verticalCenter: parent.verticalCenter
+            icon: "\u{F035B}"
+            value: SystemUsage.ram
+        }
+
+        Battery {
+            anchors.verticalCenter: parent.verticalCenter
+        }
+    }
+}

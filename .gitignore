@@ -1,0 +1,6 @@
+# Local settings with credentials
+navidrome.json
+matrix.json
+
+result
+result-*
