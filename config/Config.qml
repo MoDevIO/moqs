@@ -56,6 +56,11 @@ Singleton {
         readonly property int height: 580
     }
 
+    readonly property QtObject power: QtObject {
+        // Battery level (0..1) at which power saver is offered, on balanced or performance.
+        readonly property real lowBattery: 0.2
+    }
+
     readonly property QtObject font: QtObject {
         readonly property string family: "JetBrainsMono Nerd Font"
         // Proportional UI font, for short labels such as the battery percentage.

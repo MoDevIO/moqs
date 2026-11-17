@@ -3,6 +3,8 @@ pragma Singleton
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Services.UPower
+import qs.config
 
 // Power profile through powerprofilesctl (power-profiles-daemon).
 Singleton {
@@ -44,6 +46,46 @@ Singleton {
     }
 
     Component.onCompleted: refresh()
+
+    // Low battery: offer power saver once per discharge, while on balanced or performance.
+    readonly property real batteryLevel: UPower.displayDevice?.percentage ?? 1
+    readonly property bool lowBattery: UPower.onBattery && (UPower.displayDevice?.isLaptopBattery ?? false) && batteryLevel <= Config.power.lowBattery
+    property bool asked
+
+    onLowBatteryChanged: checkLowBattery()
+    onProfileChanged: checkLowBattery()
+
+    function checkLowBattery(): void {
+        // Charging, or picking a profile, starts over: the next low battery asks again.
+        if (!UPower.onBattery)
+            asked = false;
+        if (!lowBattery || asked || !available || profile === "" || profile === "power-saver" || prompt.running)
+            return;
+        asked = true;
+        prompt.command = ["notify-send", "-a", "Power", "-u", "critical", "-i", "battery-caution",
+            "-A", "saver=Turn on", "-A", "dismiss=Not now",
+            "Battery low", `${Math.round(batteryLevel * 100)}% left. Turn on power saver?`];
+        prompt.running = true;
+    }
+
+    Connections {
+        target: UPower
+
+        function onOnBatteryChanged(): void {
+            root.checkLowBattery();
+        }
+    }
+
+    Process {
+        id: prompt
+
+        stdout: StdioCollector {
+            onStreamFinished: {
+                if (text.trim() === "saver")
+                    root.set("power-saver");
+            }
+        }
+    }
 
     // Picks up changes made outside the shell.
     Timer {
