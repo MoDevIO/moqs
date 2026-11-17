@@ -9,7 +9,25 @@ Rectangle {
 
     required property var modelData
     readonly property Notification notif: modelData.notification
-    readonly property string image: notif?.image || Quickshell.iconPath(notif?.appIcon ?? "", true)
+    // Quickshell hands every image over as a theme icon lookup (image://icon/…), even web links
+    // and file paths, and a failed lookup draws Qt's black/purple "missing" checkerboard. Load
+    // links and paths directly, and use theme icons only when the theme has them.
+    readonly property string image: {
+        const raw = notif?.image ?? "";
+        if (raw.startsWith("image://icon/")) {
+            const name = raw.slice("image://icon/".length);
+            if (name.startsWith("/"))
+                return `file://${name}`;
+            if (/^[a-z]+:\/\//.test(name))
+                return name;
+            if (Quickshell.hasThemeIcon(name))
+                return raw;
+        } else if (raw) {
+            return raw;
+        }
+        const app = notif?.appIcon ?? "";
+        return app && Quickshell.hasThemeIcon(app) ? Quickshell.iconPath(app) : "";
+    }
     property date now: new Date()
 
     function ago(): string {

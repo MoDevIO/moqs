@@ -216,7 +216,6 @@ Singleton {
             return;
         const room = rooms[roomId];
         const sender = senderName(roomId, evt.sender);
-        const dm = !!room?.meta?.dm_user_id;
         const body = text(evt) || (image(evt) ? "Image" : "");
         if (!body)
             return;
@@ -225,7 +224,7 @@ Singleton {
         const cmd = ["notify-send", "-a", "Matrix", "-A", "default=Open", "-A", "reply=Reply"];
         if (avatar)
             cmd.push("-h", `string:image-path:${avatar}`);
-        cmd.push(dm ? sender : `${sender} · ${roomName(room)}`, body);
+        cmd.push(sender, body);
         messagePrompt.createObject(root, { roomId, command: cmd });
     }
 
