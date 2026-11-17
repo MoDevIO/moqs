@@ -104,7 +104,7 @@ Singleton {
         const meta = rooms[roomId]?.meta;
         exec("get_room_state", { room_id: roomId, fetch_members: !meta?.has_member_list, include_members: true }, res => {
             for (const evt of res ?? [])
-                addEvent(evt, false);
+                addEvent(evt);
             version++;
         });
     }
@@ -118,15 +118,20 @@ Singleton {
         if (!evt)
             return "";
         const type = evt.decrypted_type || evt.type;
-        const content = evt.decrypted ?? evt.content ?? {};
+        // Reactions and edits belong to another message; gomuks folds them into it.
+        if (evt.relation_type === "m.annotation" || evt.relation_type === "m.replace")
+            return "";
         if (evt.redacted_by)
-            return "Message deleted";
+            return type === "m.room.message" || type === "m.sticker" || type === "m.room.encrypted" ? "Message deleted" : "";
         if (type === "m.room.encrypted")
             return evt.decryption_error ? "Unable to decrypt" : "Encrypted message";
         if (type === "m.sticker")
             return "Sticker";
-        if (type !== "m.room.message" || content["m.relates_to"]?.rel_type === "m.replace")
+        if (type !== "m.room.message")
             return "";
+        // The latest edit, if gomuks has one.
+        const edit = events[evt.last_edit_rowid];
+        const content = (edit ? (edit.decrypted ?? edit.content)?.["m.new_content"] : null) ?? evt.decrypted ?? evt.content ?? {};
         switch (content.msgtype) {
         case "m.image":
             return "Image";
@@ -186,7 +191,7 @@ Singleton {
             searching = false;
             const found = (res?.events ?? []).filter(evt => text(evt) || image(evt));
             for (const evt of found)
-                addEvent(evt, false);
+                addEvent(evt);
             searchResults = found;
             // Sender names and avatars for rooms whose members we haven't seen yet.
             for (const id of new Set(found.map(evt => evt.room_id)))
@@ -201,16 +206,27 @@ Singleton {
         return Object.values(rooms).filter(r => r.meta && roomName(r).toLowerCase().includes(q)).sort((a, b) => (b.meta.sorting_timestamp ?? 0) - (a.meta.sorting_timestamp ?? 0));
     }
 
-    // Shows the message straight away as a pending local echo; gomuks then reports it sent
-    // (send_complete) and the server's copy arrives through sync on the same row.
+    // The open conversation mirrors gomuks: whenever something in it changes, its latest
+    // messages are reloaded from gomuks and shown exactly as gomuks has them. The live stream
+    // only drives the room list and tells us when to reload.
+    property string activeRoom
+
+    function openTimeline(roomId: string): void {
+        activeRoom = roomId;
+        if (roomId)
+            fetchLatest(roomId);
+    }
+
+    // Messages just sent show as pending until gomuks's timeline has them.
     function send(roomId: string, message: string): void {
         if (!message.trim())
             return;
         exec("send_message", { room_id: roomId, text: message }, evt => {
-            if (evt?.rowid) {
-                addEvent(evt, true);
-                version++;
-            }
+            if (!evt?.rowid)
+                return;
+            addEvent(evt);
+            ensureRoom(roomId).pending.push(evt.rowid);
+            version++;
         });
     }
 
@@ -223,13 +239,35 @@ Singleton {
         return !!evt?.send_error && evt.send_error !== "not sent";
     }
 
-    // Latest messages of a room from gomuks's local copy, merged into what we have.
-    function refresh(roomId: string): void {
+    // Reloads the newest page of a room and replaces our copy of it with gomuks's. Older pages
+    // loaded by scrolling up are kept.
+    function fetchLatest(roomId: string): void {
+        const r = ensureRoom(roomId);
+        const seq = ++r.fetchSeq;
         exec("paginate", { room_id: roomId, limit: 40 }, res => {
-            for (const evt of res?.events ?? [])
-                addEvent(evt, true);
+            // A newer reload has been started since.
+            if (seq !== r.fetchSeq)
+                return;
+            const fetched = res?.events ?? [];
+            for (const evt of [...fetched, ...(res?.related_events ?? [])])
+                addEvent(evt);
+            const rows = fetched.map(evt => evt.rowid).sort((a, b) => events[a].timeline_rowid - events[b].timeline_rowid);
+            const oldest = rows.length ? events[rows[0]].timeline_rowid : Infinity;
+            const older = r.timeline.filter(rowid => (events[rowid]?.timeline_rowid ?? Infinity) < oldest);
+            r.timeline = [...older, ...rows];
+            if (older.length === 0)
+                r.noMore = !res?.has_more;
+            // Sent messages that gomuks now has in its timeline are no longer pending.
+            const txns = new Set(fetched.map(evt => evt.transaction_id).filter(t => t));
+            r.pending = r.pending.filter(rowid => !rows.includes(rowid) && !txns.has(events[rowid]?.transaction_id));
             version++;
         });
+    }
+
+    // Reloads the open room shortly after it changed; several changes in a row cost one reload.
+    function changed(roomId: string): void {
+        if (roomId && roomId === activeRoom)
+            refreshDelay.restart();
     }
 
     function markRead(roomId: string): void {
@@ -242,33 +280,31 @@ Singleton {
     // Loads older messages before the earliest one we have.
     function paginate(roomId: string): void {
         const room = rooms[roomId];
-        if (!room || room.paginating || room.noMore)
+        if (!room || room.paginating || room.noMore || room.timeline.length === 0)
             return;
         room.paginating = true;
-        const first = room.timeline.length ? events[room.timeline[0]] : null;
-        exec("paginate", { room_id: roomId, max_timeline_id: first?.timeline_rowid ?? 0, limit: 40 }, res => {
+        exec("paginate", { room_id: roomId, max_timeline_id: events[room.timeline[0]].timeline_rowid, limit: 40 }, res => {
             room.paginating = false;
             room.noMore = !res?.has_more;
-            for (const evt of res?.events ?? [])
-                addEvent(evt, true);
+            const fetched = res?.events ?? [];
+            for (const evt of [...fetched, ...(res?.related_events ?? [])])
+                addEvent(evt);
+            const rows = fetched.map(evt => evt.rowid).filter(rowid => !room.timeline.includes(rowid));
+            rows.sort((a, b) => events[a].timeline_rowid - events[b].timeline_rowid);
+            room.timeline = [...rows, ...room.timeline];
             version++;
         });
     }
 
     function ensureRoom(roomId: string): var {
         if (!rooms[roomId])
-            rooms[roomId] = { meta: null, timeline: [] };
+            rooms[roomId] = { meta: null, timeline: [], pending: [], fetchSeq: 0 };
         return rooms[roomId];
     }
 
-    // Timeline position; events that don't have one yet (local echoes) go last.
-    function position(rowid: var): real {
-        return events[rowid]?.timeline_rowid || Infinity;
-    }
-
-    function addEvent(evt: var, toTimeline: bool): void {
-        // Updated copies (e.g. a message whose reactions changed) come straight from gomuks's
-        // database without a timeline position; keep the one we know.
+    // Keeps an event (and member names/avatars) for display; timelines come from fetchLatest.
+    function addEvent(evt: var): void {
+        // Updated copies (e.g. after a reaction) can lack the timeline position; keep the known one.
         const old = events[evt.rowid];
         if (old?.timeline_rowid && !evt.timeline_rowid)
             evt.timeline_rowid = old.timeline_rowid;
@@ -285,49 +321,14 @@ Singleton {
                 avatars[evt.room_id][evt.state_key] = evt.content.avatar_url;
             }
         }
-        if (evt.transaction_id)
-            dropEcho(evt);
-        // Pending local echoes have no timeline position yet but belong in the timeline.
-        if (toTimeline && (evt.timeline_rowid || evt.transaction_id)) {
-            const r = ensureRoom(evt.room_id);
-            if (!r.timeline.includes(evt.rowid)) {
-                r.timeline.push(evt.rowid);
-                sortTimeline(r);
-            }
-        }
-    }
-
-    function sortTimeline(r: var): void {
-        r.timeline.sort((a, b) => {
-            const pa = position(a);
-            const pb = position(b);
-            return pa === pb ? 0 : pa < pb ? -1 : 1;
-        });
-    }
-
-    // gomuks normally confirms a sent message on the echo's own row; should it ever use a new
-    // row, remove the echo so the message doesn't show twice.
-    function dropEcho(evt: var): void {
-        const r = rooms[evt.room_id];
-        if (!r)
-            return;
-        for (const rowid of r.timeline.slice()) {
-            const other = events[rowid];
-            if (rowid !== evt.rowid && other?.transaction_id === evt.transaction_id) {
-                r.timeline.splice(r.timeline.indexOf(rowid), 1);
-                delete events[rowid];
-            }
-        }
     }
 
     // Resuming the event stream: with these, a reconnect replays only what was missed instead of
-    // gomuks resending a fresh state (with empty timelines).
+    // gomuks resending a fresh state.
     property string runId
     property int listenerId
     property real lastReceived
     property real lastServerTs
-    // Rooms to reload after gomuks did send a fresh state.
-    property bool refreshAfterInit
 
     function streamUrl(): string {
         const q = runId ? `?run_id=${runId}&last_received_event=${lastReceived}&last_server_ts=${lastServerTs}&prev_listener_id=${listenerId}` : "";
@@ -356,36 +357,20 @@ Singleton {
             break;
         case "init_complete":
             status = "ready";
-            // History the fresh state left out, for rooms we had loaded.
-            if (refreshAfterInit) {
-                refreshAfterInit = false;
-                for (const [id, r] of Object.entries(rooms))
-                    if (r.timeline.length > 0)
-                        refresh(id);
-            }
+            // Whatever happened while we weren't listening.
+            changed(activeRoom);
             break;
         case "sync_complete":
             if (data.server_timestamp)
                 lastServerTs = data.server_timestamp;
-            // A fresh state comes with empty timelines; keep what's loaded (gomuks's row IDs are
-            // stable) and reload the latest messages once it's complete.
-            if (data.clear_state)
-                refreshAfterInit = true;
             for (const [id, sr] of Object.entries(data.rooms ?? {})) {
                 const r = ensureRoom(id);
                 if (sr.meta)
                     r.meta = sr.meta;
                 for (const evt of sr.events ?? [])
-                    addEvent(evt, false);
-                if (sr.reset)
-                    r.timeline = [];
-                for (const t of sr.timeline ?? [])
-                    if (!r.timeline.includes(t.event_rowid))
-                        r.timeline.push(t.event_rowid);
-                sortTimeline(r);
-                // Only recent history is kept in memory; older messages are paginated in again.
-                if (r.timeline.length > 200)
-                    r.timeline.splice(0, r.timeline.length - 200);
+                    addEvent(evt);
+                if (sr.timeline?.length || sr.events?.length || sr.reset)
+                    changed(id);
             }
             for (const id of data.left_rooms ?? [])
                 delete rooms[id];
@@ -394,16 +379,27 @@ Singleton {
             version++;
             break;
         case "events_decrypted":
-            for (const evt of data.events ?? [])
-                addEvent(evt, false);
+            for (const evt of data.events ?? []) {
+                addEvent(evt);
+                changed(evt.room_id);
+            }
             version++;
             break;
         case "send_complete":
-            if (data.event)
-                addEvent(data.event, true);
+            if (data.event) {
+                addEvent(data.event);
+                changed(data.event.room_id);
+            }
             version++;
             break;
         }
+    }
+
+    Timer {
+        id: refreshDelay
+
+        interval: 150
+        onTriggered: if (root.activeRoom) root.fetchLatest(root.activeRoom)
     }
 
     onConfiguredChanged: if (configured) stream.running = true

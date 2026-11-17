@@ -27,8 +27,12 @@ Item {
         Matrix.version;
         const out = [];
         let prev = "";
-        for (const rowid of room?.timeline ?? []) {
+        // gomuks's timeline, then messages just sent that it doesn't have yet.
+        const pending = (room?.pending ?? []).filter(rowid => !(room?.timeline ?? []).includes(rowid));
+        for (const rowid of [...(room?.timeline ?? []), ...pending]) {
             const evt = Matrix.events[rowid];
+            if (!evt)
+                continue;
             const image = Matrix.image(evt);
             const text = image ? Matrix.caption(evt) : Matrix.text(evt);
             if (!text && !image)
@@ -62,9 +66,6 @@ Item {
     function openRoom(id: string): void {
         roomId = id;
         pickerFor = "";
-        const r = Matrix.rooms[id];
-        if ((r?.timeline.length ?? 0) < 30)
-            Matrix.paginate(id);
         Matrix.markRead(id);
         Matrix.loadMembers(id);
         input.forceActiveFocus();
@@ -74,6 +75,9 @@ Item {
         const d = new Date(ts);
         return new Date().toDateString() === d.toDateString() ? Qt.formatTime(d, "HH:mm") : Qt.formatDate(d, "d MMM");
     }
+
+    // The service mirrors gomuks's timeline for whichever room is open here.
+    onRoomIdChanged: Matrix.openTimeline(roomId)
 
     // Keep the open room marked as read while new messages arrive.
     onMessagesChanged: if (open && roomId) readDelay.restart()
@@ -487,8 +491,18 @@ Item {
                 boundsBehavior: Flickable.StopAtBounds
                 model: [...root.messages].reverse()
 
-                // Older messages when scrolled to the top.
+                // Older messages when scrolled to the top, and while what's loaded doesn't fill
+                // the view yet (a page can be mostly reactions and other hidden events).
                 onAtYEndChanged: if (atYEnd && root.roomId) Matrix.paginate(root.roomId)
+                onContentHeightChanged: fillDelay.restart()
+                onCountChanged: fillDelay.restart()
+
+                Timer {
+                    id: fillDelay
+
+                    interval: 100
+                    onTriggered: if (root.roomId && timeline.visible && timeline.contentHeight < timeline.height) Matrix.paginate(root.roomId)
+                }
 
                 delegate: Column {
                     id: msg
