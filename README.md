@@ -14,7 +14,7 @@ A minimal [Quickshell](https://quickshell.org) shell for Hyprland. Black frame a
 | Where | What | How to open |
 |---|---|---|
 | Top right | Notification popups and the notification centre | Popups appear on their own; push the pointer into the corner for the centre |
-| Top centre | Control centre: Wi-Fi, Bluetooth and AirDrop tiles with device lists, volume, brightness | Click the clock |
+| Top centre | Control centre: Wi-Fi, Bluetooth, AirDrop and power profile tiles with lists, volume, brightness, now playing | Click the clock |
 | Bottom left | Navidrome music player, playing through mpv | Push the pointer into the corner |
 | Bottom right | Matrix client with end-to-end encryption through gomuks | Push the pointer into the corner |
 
@@ -120,7 +120,7 @@ Passwords never go into the Nix store. Give exactly one of `passwordFile` (read 
 
 ## Requirements the module doesn't cover
 
-- **System services:** PipeWire (volume), BlueZ (Bluetooth), NetworkManager (Wi-Fi) and UPower (battery) are NixOS settings, so turn them on in your system configuration.
+- **System services:** PipeWire (volume), BlueZ (Bluetooth), NetworkManager (Wi-Fi), UPower (battery) and power-profiles-daemon (the Power tile) are NixOS settings, so turn them on in your system configuration.
 - **Font:** the shell uses **JetBrainsMono Nerd Font** (`nerd-fonts.jetbrains-mono`) for text and icons.
 - **Other notification daemons:** swaync, mako or dunst would take the notification service from the shell, so disable them.
 - **AirDrop:** install [Owly](https://github.com/t4t5/owly) with its own NixOS module (`services.owly`). Your Wi-Fi card has to be one Owly supports; `owly doctor` tells you.

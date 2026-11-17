@@ -12,7 +12,7 @@ Item {
     id: root
 
     property bool open: false
-    // Which device list is shown: "", "wifi", "bluetooth" or "airdrop".
+    // Which device list is shown: "", "wifi", "bluetooth", "airdrop" or "power".
     property string expanded: ""
 
     readonly property real targetWidth: open ? Config.controlCentre.width : 0
@@ -33,8 +33,10 @@ Item {
     onOpenChanged: {
         if (!open)
             expanded = "";
-        if (open)
+        if (open) {
             Brightness.refresh();
+            PowerProfiles.refresh();
+        }
     }
 
     width: targetWidth
@@ -123,6 +125,20 @@ Item {
                     onClicked: Owly.setReceiving(!Owly.receiving)
                     onExpandClicked: root.expanded = expanded ? "" : "airdrop"
                 }
+
+                // White unless on the default, balanced; click cycles through the profiles.
+                Tile {
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: 1
+                    enabled: PowerProfiles.available
+                    checked: PowerProfiles.available && PowerProfiles.profile !== "balanced"
+                    icon: PowerProfiles.icon(PowerProfiles.profile)
+                    title: "Power"
+                    subtitle: PowerProfiles.available ? PowerProfiles.name(PowerProfiles.profile) : "Unavailable"
+                    expanded: root.expanded === "power"
+                    onClicked: PowerProfiles.cycle()
+                    onExpandClicked: root.expanded = expanded ? "" : "power"
+                }
             }
 
             WifiList {
@@ -137,6 +153,11 @@ Item {
                 visible: active
                 active: root.expanded === "bluetooth"
                 adapter: root.adapter
+            }
+
+            PowerProfileList {
+                Layout.fillWidth: true
+                visible: root.expanded === "power"
             }
 
             AirDropList {
