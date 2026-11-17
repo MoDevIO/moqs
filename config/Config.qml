@@ -13,6 +13,8 @@ Singleton {
     readonly property QtObject bar: QtObject {
         readonly property int height: 36
         readonly property int padding: 12
+        // Battery percentage beside the icon at start; clicking the icon toggles it.
+        readonly property bool showBatteryPercentage: false
     }
 
     readonly property QtObject workspaces: QtObject {
@@ -56,6 +58,8 @@ Singleton {
 
     readonly property QtObject font: QtObject {
         readonly property string family: "JetBrainsMono Nerd Font"
+        // Proportional UI font, for short labels such as the battery percentage.
+        readonly property string sans: "Inter"
         readonly property int size: 12
         readonly property int small: 10
         readonly property int icon: 15
