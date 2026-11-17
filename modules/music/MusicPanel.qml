@@ -13,6 +13,30 @@ Item {
     readonly property real targetWidth: open ? Config.music.width : 0
     readonly property real targetHeight: open ? Config.music.height : 0
 
+    // Leaving the search swaps the list out and destroys the row that was clicked, so these
+    // take the ID up front and run here, not in the row.
+    function openAlbum(id: string): void {
+        // From search results, back should lead to the album list, not an artist page left
+        // open earlier.
+        if (Navidrome.results)
+            Navidrome.artist = null;
+        leaveSearch();
+        Navidrome.openAlbum(id);
+    }
+
+    function openArtist(id: string): void {
+        leaveSearch();
+        Navidrome.album = null;
+        Navidrome.openArtist(id);
+    }
+
+    function leaveSearch(): void {
+        searchDelay.stop();
+        search.text = "";
+        Navidrome.search("");
+        list.positionViewAtBeginning();
+    }
+
     function time(seconds: real): string {
         const s = Math.max(0, Math.floor(seconds));
         return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
@@ -430,13 +454,7 @@ Item {
                             cover: Navidrome.coverUrl(entry.modelData.data.coverArt ?? "", 96)
                             title: entry.modelData.data.name
                             subtitle: entry.modelData.data.albumCount ? `${entry.modelData.data.albumCount} album${entry.modelData.data.albumCount === 1 ? "" : "s"}` : "Artist"
-                            onClicked: {
-                                search.text = "";
-                                Navidrome.results = null;
-                                Navidrome.album = null;
-                                Navidrome.openArtist(entry.modelData.data.id);
-                                list.positionViewAtBeginning();
-                            }
+                            onClicked: root.openArtist(entry.modelData.data.id)
                         }
                     }
 
@@ -448,16 +466,7 @@ Item {
                             title: entry.modelData.data.name
                             subtitle: entry.modelData.data.artist ?? ""
                             trailing: entry.modelData.data.year ? `${entry.modelData.data.year}` : ""
-                            onClicked: {
-                                // From search results, back should lead to the album list, not an
-                                // artist page left open earlier.
-                                if (Navidrome.results)
-                                    Navidrome.artist = null;
-                                search.text = "";
-                                Navidrome.results = null;
-                                Navidrome.openAlbum(entry.modelData.data.id);
-                                list.positionViewAtBeginning();
-                            }
+                            onClicked: root.openAlbum(entry.modelData.data.id)
                         }
                     }
 

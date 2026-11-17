@@ -126,12 +126,19 @@ Singleton {
         next(0);
     }
 
+    property int searchSeq: 0
+
     function search(text: string): void {
+        // Answers to older searches are dropped, including ones still under way when the
+        // search is cleared.
+        const seq = ++searchSeq;
         if (!text.trim()) {
             results = null;
             return;
         }
         api("search3", { query: text, artistCount: 5, albumCount: 10, songCount: 20 }, res => {
+            if (seq !== searchSeq)
+                return;
             const r = res.searchResult3 ?? {};
             results = { artists: r.artist ?? [], albums: r.album ?? [], songs: r.song ?? [] };
         });
