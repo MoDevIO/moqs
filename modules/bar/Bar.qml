@@ -31,13 +31,13 @@ Item {
 
         UsageBar {
             anchors.verticalCenter: parent.verticalCenter
-            icon: "\u{F0EE0}"
+            label: "CPU"
             value: SystemUsage.cpu
         }
 
         UsageBar {
             anchors.verticalCenter: parent.verticalCenter
-            icon: "\u{F035B}"
+            label: "RAM"
             value: SystemUsage.ram
         }
 

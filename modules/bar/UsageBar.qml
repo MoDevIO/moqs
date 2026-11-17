@@ -1,42 +1,56 @@
 import QtQuick
+import Quickshell.Widgets
 import qs.config
 
-// Icon plus a small bar; a full bar means 100% usage.
-Row {
+// Pill that fills from the left with usage (full = 100%), with its label in the centre.
+// The label is drawn twice, light over the track and dark over the fill, so it reads at any level.
+ClippingRectangle {
     id: root
 
-    property string icon
+    property string label
     property real value
+    readonly property real level: Math.max(0, Math.min(1, value))
 
-    spacing: 6
+    implicitWidth: 44
+    implicitHeight: 16
+    radius: height / 2
+    color: Config.colours.muted
 
     Text {
-        anchors.verticalCenter: parent.verticalCenter
-        text: root.icon
+        id: light
+
+        anchors.centerIn: parent
+        text: root.label
         color: Config.colours.text
-        font.family: Config.font.family
-        font.pointSize: Config.font.size
+        font.family: Config.font.sans
+        font.pointSize: 7
+        font.weight: Font.DemiBold
+        font.letterSpacing: 0.5
     }
 
-    Rectangle {
-        anchors.verticalCenter: parent.verticalCenter
-        width: 36
-        height: 6
-        radius: height / 2
-        color: Config.colours.muted
+    Item {
+        width: root.width * root.level
+        height: root.height
+        clip: true
+
+        Behavior on width {
+            NumberAnimation {
+                duration: 400
+                easing.type: Easing.OutCubic
+            }
+        }
 
         Rectangle {
-            width: parent.width * Math.max(0, Math.min(1, root.value))
-            height: parent.height
-            radius: height / 2
-            color: root.value >= 0.9 ? "#ff6b6b" : Config.colours.text
+            anchors.fill: parent
+            color: root.level >= 0.9 ? "#ff6b6b" : Config.colours.active
+        }
 
-            Behavior on width {
-                NumberAnimation {
-                    duration: 400
-                    easing.type: Easing.OutCubic
-                }
-            }
+        Text {
+            x: light.x
+            y: light.y
+            text: light.text
+            color: Config.colours.activeText
+            font: light.font
         }
     }
 }
