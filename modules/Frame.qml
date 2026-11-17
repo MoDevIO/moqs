@@ -32,7 +32,8 @@ Scope {
         WlrLayershell.layer: WlrLayer.Top
         WlrLayershell.exclusionMode: ExclusionMode.Ignore
         // Lets text fields (Wi-Fi password, music search, messages) take typing while their panel is open.
-        WlrLayershell.keyboardFocus: cc.open || music.open || matrix.open ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
+        // A Matrix reply takes the keyboard outright, so the message field gets it without a click.
+        WlrLayershell.keyboardFocus: matrix.replying ? WlrKeyboardFocus.Exclusive : cc.open || music.open || matrix.open ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
 
         anchors {
             top: true
@@ -107,7 +108,7 @@ Scope {
 
                 if (p.x >= win.width - hc && p.y >= win.height - hc)
                     matrix.open = true;
-                else if (matrix.open && (p.x < win.width - root.side - matrix.targetWidth - r || p.y < win.height - root.side - matrix.targetHeight - r))
+                else if (matrix.open && !matrix.holdOpen && (p.x < win.width - root.side - matrix.targetWidth - r || p.y < win.height - root.side - matrix.targetHeight - r))
                     matrix.open = false;
             }
             onHoveredChanged: {
@@ -115,7 +116,8 @@ Scope {
                     notifs.centreOpen = false;
                     cc.open = false;
                     music.open = false;
-                    matrix.open = false;
+                    if (!matrix.holdOpen)
+                        matrix.open = false;
                 }
             }
         }
@@ -188,6 +190,7 @@ Scope {
         MatrixPanel {
             id: matrix
 
+            screen: root.modelData
             anchors.right: parent.right
             anchors.bottom: parent.bottom
             anchors.rightMargin: root.side

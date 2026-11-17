@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import Quickshell
+import Quickshell.Hyprland
 import Quickshell.Widgets
 import qs.config
 import qs.services
@@ -9,8 +10,15 @@ import qs.services
 Item {
     id: root
 
+    required property ShellScreen screen
     property bool open: false
     property string roomId
+    // Opened by a notification's Reply: the frame then takes the keyboard so the message field
+    // gets typing straight away, until the panel closes.
+    property bool replying
+    // Keeps the panel open after a Reply until the pointer has arrived on it: on the way the
+    // pointer leaves the frame (the clicked popup vanishes), which would otherwise close it.
+    property bool holdOpen
     // Room list search: filters rooms by name and searches messages.
     property string query
 
@@ -74,6 +82,66 @@ Item {
     function time(ts: real): string {
         const d = new Date(ts);
         return new Date().toDateString() === d.toDateString() ? Qt.formatTime(d, "HH:mm") : Qt.formatDate(d, "d MMM");
+    }
+
+    onOpenChanged: {
+        Matrix.panelOpen = open;
+        if (!open) {
+            replying = false;
+            holdOpen = false;
+        }
+    }
+
+    HoverHandler {
+        onHoveredChanged: if (hovered) root.holdOpen = false
+    }
+
+    // Reply from a message notification, on the screen that has focus: move the pointer into the
+    // panel (it stays open while the pointer is over it), open the chat and focus the field.
+    Connections {
+        target: Matrix
+
+        function onReplyRequested(id: string): void {
+            if (Hyprland.focusedMonitor?.name !== root.screen.name)
+                return;
+            root.holdOpen = true;
+            root.replying = true;
+            root.open = true;
+            root.clearSearch();
+            root.openRoom(id);
+            // Move the pointer once the panel has grown, so it lands on the panel.
+            pointerDelay.restart();
+            holdLimit.restart();
+        }
+    }
+
+    Timer {
+        id: pointerDelay
+
+        interval: 300
+        onTriggered: {
+            const side = Config.border.thickness;
+            const x = Math.round(root.screen.x + root.screen.width - side - Config.matrix.width / 2);
+            const y = Math.round(root.screen.y + root.screen.height - side - 60);
+            Hyprland.dispatch(`hl.dsp.cursor.move({x = ${x}, y = ${y}})`);
+            focusDelay.restart();
+        }
+    }
+
+    // Once the frame has the keyboard.
+    Timer {
+        id: focusDelay
+
+        interval: 200
+        onTriggered: input.forceActiveFocus()
+    }
+
+    // In case the pointer never arrives, normal closing takes over again.
+    Timer {
+        id: holdLimit
+
+        interval: 3000
+        onTriggered: root.holdOpen = false
     }
 
     // The service mirrors gomuks's timeline for whichever room is open here.

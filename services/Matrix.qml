@@ -206,6 +206,50 @@ Singleton {
         return Object.values(rooms).filter(r => r.meta && roomName(r).toLowerCase().includes(q)).sort((a, b) => (b.meta.sorting_timestamp ?? 0) - (a.meta.sorting_timestamp ?? 0));
     }
 
+    // Message notifications. gomuks decides which messages notify (push rules); none are shown
+    // for the chat that's open on screen.
+    property bool panelOpen
+    signal replyRequested(string roomId)
+
+    function notifyMessage(roomId: string, evt: var): void {
+        if (!evt || evt.sender === userId || (panelOpen && activeRoom === roomId))
+            return;
+        const room = rooms[roomId];
+        const sender = senderName(roomId, evt.sender);
+        const dm = !!room?.meta?.dm_user_id;
+        const body = text(evt) || (image(evt) ? "Image" : "");
+        if (!body)
+            return;
+        const avatar = senderAvatar(roomId, evt.sender) || mediaUrl(room?.meta?.avatar ?? "", false);
+        // No fallback icon: senders without an avatar get no picture.
+        const cmd = ["notify-send", "-a", "Matrix", "-A", "default=Open", "-A", "reply=Reply"];
+        if (avatar)
+            cmd.push("-h", `string:image-path:${avatar}`);
+        cmd.push(dm ? sender : `${sender} · ${roomName(room)}`, body);
+        messagePrompt.createObject(root, { roomId, command: cmd });
+    }
+
+    // notify-send waits for a click on the notification and prints the chosen action.
+    Component {
+        id: messagePrompt
+
+        Process {
+            id: prompt
+
+            required property string roomId
+
+            running: true
+            stdout: StdioCollector {
+                onStreamFinished: {
+                    const action = text.trim();
+                    if (action === "reply" || action === "default")
+                        root.replyRequested(prompt.roomId);
+                }
+            }
+            onExited: destroy()
+        }
+    }
+
     // The open conversation mirrors gomuks: whenever something in it changes, its latest
     // messages are reloaded from gomuks and shown exactly as gomuks has them. The live stream
     // only drives the room list and tells us when to reload.
@@ -371,6 +415,10 @@ Singleton {
                     addEvent(evt);
                 if (sr.timeline?.length || sr.events?.length || sr.reset)
                     changed(id);
+                // Only for live syncs; a fresh state after (re)connecting isn't news.
+                if (status === "ready" && !data.clear_state)
+                    for (const n of sr.notifications ?? [])
+                        notifyMessage(id, events[n.event_rowid]);
             }
             for (const id of data.left_rooms ?? [])
                 delete rooms[id];
