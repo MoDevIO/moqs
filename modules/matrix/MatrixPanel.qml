@@ -528,6 +528,8 @@ Item {
                             readonly property real maxWidth: timeline.width * 0.75 - msg.indent
 
                             x: msg.own ? parent.width - width : msg.indent
+                            // Dimmed until gomuks confirms it was sent.
+                            opacity: Matrix.pending(msg.evt) ? 0.55 : 1
                             width: Math.max(picture.visible ? picture.width + 8 : 0, body.visible ? Math.min(body.implicitWidth, maxWidth) + 24 : 0)
                             height: content.implicitHeight + (body.visible ? 14 : 8)
                             radius: 14
@@ -652,6 +654,17 @@ Item {
                         }
                     }
 
+                    Text {
+                        x: msg.own ? parent.width - width : msg.indent
+                        visible: Matrix.failed(msg.evt)
+                        rightPadding: 6
+                        leftPadding: 6
+                        text: "Failed to send"
+                        color: "#ff6b6b"
+                        font.family: Config.font.family
+                        font.pointSize: Config.font.small
+                    }
+
                     // Quick reaction picker
                     Row {
                         x: msg.own ? parent.width - width : msg.indent
@@ -707,19 +720,38 @@ Item {
                                 required property var modelData
                                 readonly property bool mine: (msg.evt.own_reactions?.[modelData[0]]?.length ?? 0) > 0
 
-                                width: chipText.implicitWidth + 16
+                                // Custom emoji reactions use an image (mxc://) as their key.
+                                readonly property bool custom: modelData[0].startsWith("mxc://")
+
+                                width: chipRow.implicitWidth + 16
                                 height: 24
                                 radius: 12
                                 color: mine ? Config.colours.active : chipArea.containsMouse ? Config.colours.buttonHover : Config.colours.card
 
-                                Text {
-                                    id: chipText
+                                Row {
+                                    id: chipRow
 
                                     anchors.centerIn: parent
-                                    text: `${chip.modelData[0]} ${chip.modelData[1]}`
-                                    color: chip.mine ? Config.colours.activeText : Config.colours.text
-                                    font.family: Config.font.family
-                                    font.pointSize: Config.font.small
+                                    spacing: 4
+
+                                    Image {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        visible: chip.custom
+                                        width: 16
+                                        height: 16
+                                        sourceSize: Qt.size(32, 32)
+                                        fillMode: Image.PreserveAspectFit
+                                        asynchronous: true
+                                        source: chip.custom ? Matrix.mediaUrl(chip.modelData[0], false) : ""
+                                    }
+
+                                    Text {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: chip.custom ? `${chip.modelData[1]}` : `${chip.modelData[0]} ${chip.modelData[1]}`
+                                        color: chip.mine ? Config.colours.activeText : Config.colours.text
+                                        font.family: Config.font.family
+                                        font.pointSize: Config.font.small
+                                    }
                                 }
 
                                 MouseArea {

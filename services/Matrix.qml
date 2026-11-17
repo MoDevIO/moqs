@@ -201,9 +201,35 @@ Singleton {
         return Object.values(rooms).filter(r => r.meta && roomName(r).toLowerCase().includes(q)).sort((a, b) => (b.meta.sorting_timestamp ?? 0) - (a.meta.sorting_timestamp ?? 0));
     }
 
+    // Shows the message straight away as a pending local echo; gomuks then reports it sent
+    // (send_complete) and the server's copy arrives through sync on the same row.
     function send(roomId: string, message: string): void {
-        if (message.trim())
-            exec("send_message", { room_id: roomId, text: message }, null);
+        if (!message.trim())
+            return;
+        exec("send_message", { room_id: roomId, text: message }, evt => {
+            if (evt?.rowid) {
+                addEvent(evt, true);
+                version++;
+            }
+        });
+    }
+
+    // Not yet confirmed by gomuks; and failed for good.
+    function pending(evt: var): bool {
+        return (evt?.event_id ?? "").startsWith("~") && (!evt.send_error || evt.send_error === "not sent");
+    }
+
+    function failed(evt: var): bool {
+        return !!evt?.send_error && evt.send_error !== "not sent";
+    }
+
+    // Latest messages of a room from gomuks's local copy, merged into what we have.
+    function refresh(roomId: string): void {
+        exec("paginate", { room_id: roomId, limit: 40 }, res => {
+            for (const evt of res?.events ?? [])
+                addEvent(evt, true);
+            version++;
+        });
     }
 
     function markRead(roomId: string): void {
@@ -259,22 +285,65 @@ Singleton {
                 avatars[evt.room_id][evt.state_key] = evt.content.avatar_url;
             }
         }
-        if (toTimeline && evt.timeline_rowid) {
+        if (evt.transaction_id)
+            dropEcho(evt);
+        // Pending local echoes have no timeline position yet but belong in the timeline.
+        if (toTimeline && (evt.timeline_rowid || evt.transaction_id)) {
             const r = ensureRoom(evt.room_id);
             if (!r.timeline.includes(evt.rowid)) {
                 r.timeline.push(evt.rowid);
-                r.timeline.sort((a, b) => {
-                    const pa = position(a);
-                    const pb = position(b);
-                    return pa === pb ? 0 : pa < pb ? -1 : 1;
-                });
+                sortTimeline(r);
             }
         }
     }
 
+    function sortTimeline(r: var): void {
+        r.timeline.sort((a, b) => {
+            const pa = position(a);
+            const pb = position(b);
+            return pa === pb ? 0 : pa < pb ? -1 : 1;
+        });
+    }
+
+    // gomuks normally confirms a sent message on the echo's own row; should it ever use a new
+    // row, remove the echo so the message doesn't show twice.
+    function dropEcho(evt: var): void {
+        const r = rooms[evt.room_id];
+        if (!r)
+            return;
+        for (const rowid of r.timeline.slice()) {
+            const other = events[rowid];
+            if (rowid !== evt.rowid && other?.transaction_id === evt.transaction_id) {
+                r.timeline.splice(r.timeline.indexOf(rowid), 1);
+                delete events[rowid];
+            }
+        }
+    }
+
+    // Resuming the event stream: with these, a reconnect replays only what was missed instead of
+    // gomuks resending a fresh state (with empty timelines).
+    property string runId
+    property int listenerId
+    property real lastReceived
+    property real lastServerTs
+    // Rooms to reload after gomuks did send a fresh state.
+    property bool refreshAfterInit
+
+    function streamUrl(): string {
+        const q = runId ? `?run_id=${runId}&last_received_event=${lastReceived}&last_server_ts=${lastServerTs}&prev_listener_id=${listenerId}` : "";
+        return `${url}/_gomuks/sse${q}`;
+    }
+
     function handle(msg: var): void {
         const data = msg.data;
+        // Buffered events count down from -1; the most negative is the newest.
+        if (msg.request_id < 0)
+            lastReceived = msg.request_id;
         switch (msg.command) {
+        case "run_id":
+            runId = data?.run_id ?? "";
+            listenerId = data?.listener_id ?? 0;
+            break;
         case "client_state":
             loggedIn = data?.is_logged_in ?? false;
             userId = data?.user_id ?? "";
@@ -287,12 +356,21 @@ Singleton {
             break;
         case "init_complete":
             status = "ready";
+            // History the fresh state left out, for rooms we had loaded.
+            if (refreshAfterInit) {
+                refreshAfterInit = false;
+                for (const [id, r] of Object.entries(rooms))
+                    if (r.timeline.length > 0)
+                        refresh(id);
+            }
             break;
         case "sync_complete":
-            if (data.clear_state) {
-                rooms = {};
-                events = {};
-            }
+            if (data.server_timestamp)
+                lastServerTs = data.server_timestamp;
+            // A fresh state comes with empty timelines; keep what's loaded (gomuks's row IDs are
+            // stable) and reload the latest messages once it's complete.
+            if (data.clear_state)
+                refreshAfterInit = true;
             for (const [id, sr] of Object.entries(data.rooms ?? {})) {
                 const r = ensureRoom(id);
                 if (sr.meta)
@@ -304,6 +382,7 @@ Singleton {
                 for (const t of sr.timeline ?? [])
                     if (!r.timeline.includes(t.event_rowid))
                         r.timeline.push(t.event_rowid);
+                sortTimeline(r);
                 // Only recent history is kept in memory; older messages are paginated in again.
                 if (r.timeline.length > 200)
                     r.timeline.splice(0, r.timeline.length - 200);
@@ -365,10 +444,13 @@ Singleton {
     Process {
         id: stream
 
-        command: ["curl", "-sSfN", "--compressed", "-K", "-", "-H", "Accept: application/jsonl", `${root.url}/_gomuks/sse`]
+        property real lastData: Date.now()
+
+        command: ["curl", "-sSfN", "--compressed", "-K", "-", "-H", "Accept: application/jsonl", root.streamUrl()]
         stdinEnabled: true
 
         onStarted: {
+            lastData = Date.now();
             root.status = "connecting";
             write(`user = "${settings.username.replace(/(["\\])/g, "\\$1")}:${root.password.replace(/(["\\])/g, "\\$1")}"\n`);
             stdinEnabled = false;
@@ -376,6 +458,7 @@ Singleton {
 
         stdout: SplitParser {
             onRead: line => {
+                stream.lastData = Date.now();
                 if (line === "null")
                     return;
                 try {
@@ -404,7 +487,28 @@ Singleton {
         interval: 5000
         onTriggered: {
             root.error = "";
+            stream.command = ["curl", "-sSfN", "--compressed", "-K", "-", "-H", "Accept: application/jsonl", root.streamUrl()];
             stream.running = true;
+        }
+    }
+
+    // gomuks pings every 15 s; a stream silent for much longer has hung, so restart it.
+    // Also tells gomuks what we've received, so it can drop it from its replay buffer.
+    Timer {
+        running: stream.running
+        interval: 15000
+        repeat: true
+        onTriggered: {
+            if (Date.now() - stream.lastData > 45000) {
+                stream.running = false;
+                return;
+            }
+            if (!root.runId || !root.listenerId || !root.lastReceived)
+                return;
+            const xhr = new XMLHttpRequest();
+            xhr.open("POST", `${root.url}/_gomuks/sse/ping?run_id=${root.runId}&listener_id=${root.listenerId}&last_received_event=${root.lastReceived}`);
+            xhr.setRequestHeader("Authorization", `Basic ${Qt.btoa(`${settings.username}:${root.password}`)}`);
+            xhr.send();
         }
     }
 }
