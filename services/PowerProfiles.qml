@@ -56,8 +56,9 @@ Singleton {
     onProfileChanged: checkLowBattery()
 
     function checkLowBattery(): void {
-        // Charging, or picking a profile, starts over: the next low battery asks again.
-        if (!UPower.onBattery)
+        // Charging, or being on power saver, starts over: leaving power saver again while
+        // still low asks again.
+        if (!UPower.onBattery || profile === "power-saver")
             asked = false;
         if (!lowBattery || asked || !available || profile === "" || profile === "power-saver" || prompt.running)
             return;
