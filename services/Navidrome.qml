@@ -22,7 +22,8 @@ Singleton {
     // Browsing state
     property var albums: []
     property var album: null // { id, name, artist, coverArt, songs }
-    property var results: null // { albums, songs }
+    property var artist: null // { id, name, coverArt, albums }
+    property var results: null // { artists, albums, songs }
     property bool loading: false
 
     function query(params: var): string {
@@ -85,13 +86,54 @@ Singleton {
         });
     }
 
+    function openArtist(id: string): void {
+        api("getArtist", { id }, res => {
+            const a = res.artist;
+            const albums = (a.album ?? []).sort((x, y) => (y.year ?? 0) - (x.year ?? 0));
+            artist = { id: a.id, name: a.name, coverArt: a.coverArt, albums, songs: [] };
+            // Artists who only appear on other people's albums have none of their own; list
+            // their songs instead. Those only credited as e.g. remixer have no songs of their own
+            // either, so fall back to the songs that mention them.
+            if (albums.length === 0)
+                api("search3", { query: a.name, artistCount: 0, albumCount: 0, songCount: 200 }, r => {
+                    if (artist?.id !== id)
+                        return;
+                    const found = r.searchResult3?.song ?? [];
+                    const own = found.filter(s => s.artistId === id || (s.artists ?? []).some(x => x.id === id));
+                    artist = Object.assign({}, artist, { songs: own.length ? own : found });
+                });
+        });
+    }
+
+    // Every song of an artist, album by album (newest album first), for playing them all.
+    function artistSongs(a: var, done: var): void {
+        if ((a?.albums ?? []).length === 0) {
+            done(a?.songs ?? []);
+            return;
+        }
+        const albums = a.albums;
+        const songs = [];
+        const next = i => {
+            if (i >= albums.length) {
+                done(songs);
+                return;
+            }
+            api("getAlbum", { id: albums[i].id }, res => {
+                songs.push(...(res.album?.song ?? []));
+                next(i + 1);
+            });
+        };
+        next(0);
+    }
+
     function search(text: string): void {
         if (!text.trim()) {
             results = null;
             return;
         }
-        api("search3", { query: text, artistCount: 0, albumCount: 8, songCount: 30 }, res => {
-            results = { albums: res.searchResult3?.album ?? [], songs: res.searchResult3?.song ?? [] };
+        api("search3", { query: text, artistCount: 5, albumCount: 10, songCount: 20 }, res => {
+            const r = res.searchResult3 ?? {};
+            results = { artists: r.artist ?? [], albums: r.album ?? [], songs: r.song ?? [] };
         });
     }
 
