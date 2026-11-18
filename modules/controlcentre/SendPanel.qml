@@ -97,6 +97,17 @@ Item {
                 readonly property bool progressing: busy && Owly.sendTotal > 0
                 readonly property real progress: Owly.sendTotal > 0 ? Math.min(Owly.sendSent / Owly.sendTotal, 1) : 0
 
+                function eta(seconds: real): string {
+                    if (seconds < 0)
+                        return "";
+                    if (seconds < 60)
+                        return ` · ${Math.max(1, Math.ceil(seconds))} s left`;
+                    const minutes = Math.ceil(seconds / 60);
+                    if (minutes < 60)
+                        return ` · ${minutes} min left`;
+                    return ` · ${Math.floor(minutes / 60)} h ${minutes % 60} min left`;
+                }
+
                 function size(bytes: real): string {
                     const units = ["B", "KB", "MB", "GB"];
                     let i = 0;
@@ -187,7 +198,7 @@ Item {
                     Text {
                         Layout.fillWidth: true
                         horizontalAlignment: Text.AlignHCenter
-                        text: Owly.sendState === "idle" ? (zone.hovered ? "Release to send" : "Drag files to send here") : zone.progressing ? `${Math.floor(zone.progress * 100)} % · ${zone.size(Owly.sendSent)} of ${zone.size(Owly.sendTotal)}` : Owly.sendDetail
+                        text: Owly.sendState === "idle" ? (zone.hovered ? "Release to send" : "Drag files to send here") : zone.progressing ? `${Math.floor(zone.progress * 100)} % · ${zone.size(Owly.sendSent)} of ${zone.size(Owly.sendTotal)}${zone.eta(Owly.sendRemaining)}` : Owly.sendDetail
                         elide: Text.ElideRight
                         color: Owly.sendState === "failed" ? "#ff6b6b" : Config.colours.subtext
                         font.family: Config.font.family

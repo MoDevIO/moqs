@@ -28,6 +28,8 @@ Singleton {
     // Bytes sent so far and in all, once the transfer has begun; sendTotal is 0 before that.
     property real sendSent: 0
     property real sendTotal: 0
+    // Seconds until done at the average speed so far; -1 until there's enough to go on.
+    property real sendRemaining: -1
 
     // Files take priority; links are only sent when no files were given.
     function send(files: var, urls: var): void {
@@ -44,6 +46,9 @@ Singleton {
         sender.buffer = "";
         sendSent = 0;
         sendTotal = 0;
+        sendRemaining = -1;
+        sender.start = null;
+        sender.lastProgress = "";
         sender.command = cmd;
         sendState = "sending";
         sendDetail = `Looking for ${target.name}…`;
@@ -240,11 +245,26 @@ Singleton {
         property string to
         property string error
         property string buffer
+        // The first progress report, { time, sent }, to measure the speed from.
+        property var start: null
+        // The latest progress line, which arrives twice: unterminated, then ended by the next.
+        property string lastProgress
 
         function handle(line: string): void {
             const progress = line.match(/^(\d+) \/ (\d+) bytes$/);
             if (progress) {
-                root.sendSent = Number(progress[1]);
+                if (line === sender.lastProgress)
+                    return;
+                sender.lastProgress = line;
+                const sent = Number(progress[1]);
+                const now = Date.now();
+                if (!sender.start)
+                    sender.start = { time: now, sent };
+                const seconds = (now - sender.start.time) / 1000;
+                const rate = (sent - sender.start.sent) / seconds;
+                if (seconds >= 2 && rate > 0)
+                    root.sendRemaining = (Number(progress[2]) - sent) / rate;
+                root.sendSent = sent;
                 root.sendTotal = Number(progress[2]);
             } else if (line.startsWith("sending to")) {
                 root.sendDetail = `Waiting for ${sender.to} to accept…`;
