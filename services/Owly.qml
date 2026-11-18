@@ -25,6 +25,9 @@ Singleton {
     // idle, sending, delivered, declined, failed
     property string sendState: "idle"
     property string sendDetail: ""
+    // Bytes sent so far and in all, once the transfer has begun; sendTotal is 0 before that.
+    property real sendSent: 0
+    property real sendTotal: 0
 
     // Files take priority; links are only sent when no files were given.
     function send(files: var, urls: var): void {
@@ -38,6 +41,9 @@ Singleton {
                 cmd.push("--url", u);
         sender.to = target.name;
         sender.error = "";
+        sender.buffer = "";
+        sendSent = 0;
+        sendTotal = 0;
         sender.command = cmd;
         sendState = "sending";
         sendDetail = `Looking for ${target.name}…`;
@@ -233,15 +239,33 @@ Singleton {
 
         property string to
         property string error
+        property string buffer
 
+        function handle(line: string): void {
+            const progress = line.match(/^(\d+) \/ (\d+) bytes$/);
+            if (progress) {
+                root.sendSent = Number(progress[1]);
+                root.sendTotal = Number(progress[2]);
+            } else if (line.startsWith("sending to")) {
+                root.sendDetail = `Waiting for ${sender.to} to accept…`;
+            } else if (line === "accepted") {
+                root.sendDetail = "Sending…";
+            } else if (line.startsWith("owly: ")) {
+                sender.error = line.slice(6);
+            }
+        }
+
+        // Progress is redrawn in place ("\r<sent> / <total> bytes"), so lines end in \r or \n
+        // and the latest progress is still unterminated; it only counts once "bytes" is in.
         stderr: SplitParser {
-            onRead: line => {
-                if (line.startsWith("sending to"))
-                    root.sendDetail = `Waiting for ${sender.to} to accept…`;
-                else if (line === "accepted")
-                    root.sendDetail = "Sending…";
-                else if (line.startsWith("owly: "))
-                    sender.error = line.slice(6);
+            splitMarker: ""
+            onRead: data => {
+                const lines = (sender.buffer + data).split(/[\r\n]/);
+                sender.buffer = lines.pop();
+                for (const line of lines)
+                    sender.handle(line);
+                if (/^\d+ \/ \d+ bytes$/.test(sender.buffer))
+                    sender.handle(sender.buffer);
             }
         }
 

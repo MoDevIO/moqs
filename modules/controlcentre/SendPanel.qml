@@ -94,6 +94,18 @@ Item {
 
                 readonly property bool hovered: drop.containsDrag
                 readonly property bool busy: Owly.sendState === "sending"
+                readonly property bool progressing: busy && Owly.sendTotal > 0
+                readonly property real progress: Owly.sendTotal > 0 ? Math.min(Owly.sendSent / Owly.sendTotal, 1) : 0
+
+                function size(bytes: real): string {
+                    const units = ["B", "KB", "MB", "GB"];
+                    let i = 0;
+                    while (bytes >= 1000 && i < units.length - 1) {
+                        bytes /= 1000;
+                        i++;
+                    }
+                    return `${bytes.toFixed(i && bytes < 10 ? 1 : 0)} ${units[i]}`;
+                }
 
                 Layout.fillWidth: true
                 implicitHeight: 96
@@ -175,11 +187,34 @@ Item {
                     Text {
                         Layout.fillWidth: true
                         horizontalAlignment: Text.AlignHCenter
-                        text: Owly.sendState === "idle" ? (zone.hovered ? "Release to send" : "Drag files to send here") : Owly.sendDetail
+                        text: Owly.sendState === "idle" ? (zone.hovered ? "Release to send" : "Drag files to send here") : zone.progressing ? `${Math.floor(zone.progress * 100)} % · ${zone.size(Owly.sendSent)} of ${zone.size(Owly.sendTotal)}` : Owly.sendDetail
                         elide: Text.ElideRight
                         color: Owly.sendState === "failed" ? "#ff6b6b" : Config.colours.subtext
                         font.family: Config.font.family
                         font.pointSize: Config.font.small
+                    }
+
+                    // Transfer progress, once the receiver has accepted.
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.topMargin: 2
+                        implicitHeight: 4
+                        radius: 2
+                        color: Config.colours.muted
+                        visible: zone.progressing
+
+                        Rectangle {
+                            width: parent.width * zone.progress
+                            height: parent.height
+                            radius: parent.radius
+                            color: Config.colours.text
+
+                            Behavior on width {
+                                NumberAnimation {
+                                    duration: 150
+                                }
+                            }
+                        }
                     }
                 }
             }
