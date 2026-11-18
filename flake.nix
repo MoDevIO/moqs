@@ -16,6 +16,9 @@
       # The QML sources only; settings files are added by the module.
       packages = forAllSystems (pkgs: {
         default = pkgs.callPackage ./nix/package.nix { };
+        # For running from a checkout: `nix build .#mpv-mpris -o mpv-mpris` gives the music
+        # player MPRIS, as the module does.
+        mpv-mpris = pkgs.mpvScripts.mpris;
       });
 
       homeManagerModules = {

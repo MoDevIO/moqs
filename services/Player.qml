@@ -4,8 +4,9 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 
-// Music playback through an mpv instance controlled over its JSON IPC socket. With mpv-mpris at
-// mpris.so next to shell.qml (the Home Manager module puts it there), mpv also shows up over MPRIS
+// Music playback through an mpv instance controlled over its JSON IPC socket. With mpv-mpris in
+// mpv-mpris/ next to shell.qml (the Home Manager module links it there; in a checkout run
+// `nix build .#mpv-mpris -o mpv-mpris`), mpv also shows up over MPRIS
 // as "Navidrome", so playerctl and media keys control it too; everything here follows mpv's state.
 Singleton {
     id: root
@@ -89,7 +90,7 @@ Singleton {
     Process {
         id: mpv
 
-        command: ["mpv", "--idle=yes", "--no-video", "--no-terminal", "--force-window=no", "--audio-client-name=Navidrome", `--script=${Quickshell.shellPath("mpris.so")}`, `--input-ipc-server=${root.socketPath}`]
+        command: ["mpv", "--idle=yes", "--no-video", "--no-terminal", "--force-window=no", "--audio-client-name=Navidrome", `--script=${Quickshell.shellPath("mpv-mpris/share/mpv/scripts/mpris.so")}`, `--input-ipc-server=${root.socketPath}`]
         onStarted: connectRetry.start()
         onExited: {
             socket.connected = false;

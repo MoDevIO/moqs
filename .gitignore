@@ -2,8 +2,8 @@
 navidrome.json
 matrix.json
 
-# mpv-mpris for the music player, linked in by the Home Manager module
-mpris.so
+# mpv-mpris for the music player, linked in by the Home Manager module or `nix build .#mpv-mpris -o mpv-mpris`
+mpv-mpris
 
 result
 result-*

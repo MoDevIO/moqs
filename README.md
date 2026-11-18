@@ -153,7 +153,13 @@ Without the Nix module, put the panel settings next to `shell.qml`. Both files a
 { "url": "http://localhost:29325", "username": "gomuks", "password": "…" }
 ```
 
-Both accept `"passwordCommand"` instead of `"password"`. Sizes, colours and fonts live in `config/Config.qml`.
+Both accept `"passwordCommand"` instead of `"password"`. For MPRIS (playerctl) on the music player, link in mpv-mpris; restart the shell's mpv afterwards if it is already running:
+
+```sh
+nix build .#mpv-mpris -o mpv-mpris
+```
+
+Sizes, colours and fonts live in `config/Config.qml`.
 
 ```
 shell.qml        entry point: one frame per screen

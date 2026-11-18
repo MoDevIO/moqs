@@ -27,7 +27,7 @@ let
     chmod -R u+w $out
     ${lib.optionalString cfg.navidrome.enable ''
       cp ${pkgs.writeText "navidrome.json" (settings cfg.navidrome)} $out/navidrome.json
-      ln -s ${pkgs.mpvScripts.mpris}/share/mpv/scripts/mpris.so $out/mpris.so
+      ln -s ${pkgs.mpvScripts.mpris} $out/mpv-mpris
     ''}
     ${lib.optionalString cfg.matrix.enable ''
       cp ${pkgs.writeText "matrix.json" (settings cfg.matrix)} $out/matrix.json
