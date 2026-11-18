@@ -4,7 +4,9 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 
-// Music playback through an mpv instance controlled over its JSON IPC socket.
+// Music playback through an mpv instance controlled over its JSON IPC socket. With mpv-mpris at
+// mpris.so next to shell.qml (the Home Manager module puts it there), mpv also shows up over MPRIS
+// as "Navidrome", so playerctl and media keys control it too; everything here follows mpv's state.
 Singleton {
     id: root
 
@@ -21,6 +23,21 @@ Singleton {
     readonly property string socketPath: `${Quickshell.env("XDG_RUNTIME_DIR")}/quickshell-mpv-${Quickshell.processId}.sock`
     property var pending: []
 
+    // mpv-mpris only reports local cover files, so covers get downloaded here.
+    readonly property string coverDir: `${Quickshell.env("XDG_RUNTIME_DIR")}/moqs-covers`
+
+    function coverFile(id: string): string {
+        return `${coverDir}/${id.replace(/[^\w-]/g, "_")}.jpg`;
+    }
+
+    function fetchCovers(songs: var): void {
+        const args = [];
+        for (const id of new Set(songs.map(s => s.coverArt).filter(Boolean)))
+            args.push(Navidrome.coverUrl(id, 512), "-o", coverFile(id));
+        if (args.length)
+            Quickshell.execDetached(["curl", "-sf", "--create-dirs", "--skip-existing", ...args]);
+    }
+
     function send(command: var): void {
         const line = JSON.stringify({ command }) + "\n";
         if (socket.connected) {
@@ -34,10 +51,16 @@ Singleton {
 
     function play(songs: var, start: int): void {
         queue = songs;
+        fetchCovers(songs);
         send(["playlist-clear"]);
         send(["stop"]);
-        for (const s of songs)
-            send(["loadfile", Navidrome.streamUrl(s.id), "append"]);
+        for (const s of songs) {
+            // Titles and covers for MPRIS; artist and album come from the stream's tags.
+            const options = { "force-media-title": s.title ?? "" };
+            if (s.coverArt)
+                options["cover-art-files"] = coverFile(s.coverArt);
+            send({ name: "loadfile", url: Navidrome.streamUrl(s.id), flags: "append", options });
+        }
         send(["set_property", "playlist-pos", start]);
         send(["set_property", "pause", false]);
     }
@@ -66,7 +89,7 @@ Singleton {
     Process {
         id: mpv
 
-        command: ["mpv", "--idle=yes", "--no-video", "--no-terminal", "--force-window=no", `--input-ipc-server=${root.socketPath}`]
+        command: ["mpv", "--idle=yes", "--no-video", "--no-terminal", "--force-window=no", "--audio-client-name=Navidrome", `--script=${Quickshell.shellPath("mpris.so")}`, `--input-ipc-server=${root.socketPath}`]
         onStarted: connectRetry.start()
         onExited: {
             socket.connected = false;

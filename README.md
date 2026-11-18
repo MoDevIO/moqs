@@ -25,7 +25,7 @@ A minimal [Quickshell](https://quickshell.org) shell for Hyprland. Black frame a
   - A nearby-devices list. Clicking a device opens a drop zone; files dropped there get sent to it.
 - **Wi-Fi:** connect and disconnect from the list, with a password field for new secured networks.
 - **Bluetooth:** connect, disconnect and pair.
-- **Music:** search, album lists (new, random, most played), queueing a whole album from any track, seeking. Plays are reported back to Navidrome.
+- **Music:** search, album lists (new, random, most played), queueing a whole album from any track, seeking. Plays are reported back to Navidrome. The player shows up over MPRIS as "Navidrome", so `playerctl -p mpv` and media keys control it.
 - **Matrix:** room list with avatars and unread counts, conversations, sending with Markdown, older history on scroll.
 
 Panels close once the pointer leaves them.
@@ -96,7 +96,7 @@ Don't put `homeManagerModules.default` in a NixOS module list. It stops with an 
 - Installs the shell to `~/.config/quickshell`, together with `navidrome.json` and `matrix.json` generated from your settings.
 - Installs the programs the shell runs:
   - always: `brightnessctl`, `curl` and `libnotify`
-  - with Navidrome enabled: `mpv`
+  - with Navidrome enabled: `mpv`, plus [mpv-mpris](https://github.com/hoyon/mpv-mpris) loaded into the shell's own mpv
   - with Matrix enabled: `gomuks-web`, plus a user service to run it (turn the service off with `matrix.gomuks.enable = false`)
 
 Passwords never go into the Nix store. Give exactly one of `passwordFile` (read at runtime) or `passwordCommand` (its first output line is used).

@@ -2,5 +2,8 @@
 navidrome.json
 matrix.json
 
+# mpv-mpris for the music player, linked in by the Home Manager module
+mpris.so
+
 result
 result-*

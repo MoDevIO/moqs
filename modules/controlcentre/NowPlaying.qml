@@ -16,9 +16,9 @@ Rectangle {
         if (Player.current)
             list.push({ key: "moqs", name: "Navidrome" });
         for (const p of Mpris.players.values) {
-            // playerctld only mirrors another player, and our own mpv shows up here
-            // too when mpv's MPRIS plugin is installed.
-            if (p.dbusName.endsWith(".playerctld") || (Player.current && p.identity === "mpv"))
+            // playerctld only mirrors another player, and our own mpv is already the
+            // Navidrome source.
+            if (p.dbusName.endsWith(".playerctld") || p.dbusName.startsWith("org.mpris.MediaPlayer2.mpv.Navidrome."))
                 continue;
             list.push({ key: p.dbusName, name: p.identity || "Player", player: p });
         }
