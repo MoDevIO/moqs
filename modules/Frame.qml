@@ -43,8 +43,17 @@ Scope {
             right: true
         }
 
-        // Only the border and panels take input; the interior passes clicks through.
-        mask: Region {
+        // Only the border and panels take input; the interior passes clicks through. While the
+        // dashboard is dragged the whole screen does, so a quick pull can't leave the pointer
+        // outside the frame, where the drag would stop getting its moves.
+        mask: dash.dragging ? dragMask : frameMask
+
+        readonly property Region dragMask: Region {
+            width: win.width
+            height: win.height
+        }
+
+        readonly property Region frameMask: Region {
             x: root.side
             y: root.top
             width: win.width - root.side * 2
@@ -78,6 +87,15 @@ Scope {
 
             Region {
                 item: dash
+                intersection: Intersection.Subtract
+            }
+
+            // The gap above the bottom border also grabs the dashboard.
+            Region {
+                x: root.side + Config.border.rounding
+                y: win.height - root.side - Config.hyprland.gapsOut
+                width: win.width - (root.side + Config.border.rounding) * 2
+                height: Config.hyprland.gapsOut
                 intersection: Intersection.Subtract
             }
         }
@@ -148,8 +166,9 @@ Scope {
             }
         }
 
-        // Dragging the bottom border up pulls out the dashboard. The corners stay free for
-        // the music player and Matrix.
+        // Dragging the bottom border up pulls out the dashboard. The gap above it and the
+        // peeking sliver count too, so the grab doesn't need a precise aim. The corners stay
+        // free for the music player and Matrix.
         MouseArea {
             property real startY
             property real startHeight
@@ -159,7 +178,7 @@ Scope {
             anchors.right: parent.right
             anchors.leftMargin: root.side + Config.border.rounding
             anchors.rightMargin: root.side + Config.border.rounding
-            height: root.side
+            height: root.side + Config.hyprland.gapsOut + (dash.peek && !dash.open ? Config.dashboard.peek : 0)
             hoverEnabled: true
             cursorShape: Qt.SizeVerCursor
             onContainsMouseChanged: dash.peek = containsMouse
