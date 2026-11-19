@@ -44,6 +44,12 @@ A minimal [Quickshell](https://quickshell.org) shell for Hyprland. Black frame a
 
 Panels close once the pointer leaves them. Clicking the music or Matrix corner while its panel is open goes back to that panel's start page.
 
+Each corner can instead be pulled out like the dashboard: drag from the top-right corner downwards, or from the bottom corners upwards. A panel pulled out at least 30% of the way stays open. Set this per corner with `dragToOpen` (Nix option, or `settings.json` next to `shell.qml`):
+
+```json
+{ "dragToOpen": { "notifications": false, "music": true, "matrix": true } }
+```
+
 ## Install with Nix
 
 The flake has a Home Manager module and a NixOS wrapper around it, both configured under `services.moqs`.
@@ -138,7 +144,7 @@ Don't put `homeManagerModules.default` in a NixOS module list. It stops with an 
 ### What the module does
 
 - Turns on `programs.quickshell`, started from `hyprland-session.target`. Change the target with `services.moqs.systemdTarget`.
-- Installs the shell to `~/.config/quickshell`, together with `navidrome.json`, `matrix.json`, `webuntis.json`, `weather.json` and `hass.json` generated from your settings.
+- Installs the shell to `~/.config/quickshell`, together with `settings.json`, `navidrome.json`, `matrix.json`, `webuntis.json`, `weather.json` and `hass.json` generated from your settings.
 - Installs the programs the shell runs:
   - always: `brightnessctl`, `cliphist`, `curl`, `libnotify` and `wl-clipboard`
   - with Navidrome enabled: `mpv`, plus [mpv-mpris](https://github.com/hoyon/mpv-mpris) loaded into the shell's own mpv
@@ -153,6 +159,7 @@ Passwords never go into the Nix store. Give exactly one of `passwordFile` (read 
 | `enable` | `false` | Enable the shell |
 | `systemdTarget` | `"hyprland-session.target"` | Target that starts it |
 | `user` | (none) | NixOS module only: whose Home Manager gets the shell |
+| `dragToOpen.notifications` / `music` / `matrix` | `false` | Pull that corner's panel out of the border instead of opening it on hover |
 | `navidrome.enable` | `false` | Configure the music panel |
 | `navidrome.url` | (none) | Navidrome server URL |
 | `navidrome.username` | (none) | Navidrome username |

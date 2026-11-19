@@ -43,10 +43,12 @@ Scope {
             right: true
         }
 
-        // Only the border and panels take input; the interior passes clicks through. While the
-        // dashboard is dragged the whole screen does, so a quick pull can't leave the pointer
+        // Only the border and panels take input; the interior passes clicks through. While a
+        // panel is pulled out the whole screen does, so a quick pull can't leave the pointer
         // outside the frame, where the drag would stop getting its moves.
-        mask: dash.dragging ? dragMask : frameMask
+        mask: dragging ? dragMask : frameMask
+
+        readonly property bool dragging: dash.dragging || notifs.dragging || music.dragging || matrix.dragging
 
         readonly property Region dragMask: Region {
             width: win.width
@@ -101,7 +103,8 @@ Scope {
         }
 
         // Pushing the pointer into the top-right corner opens the notification centre,
-        // the bottom-left corner the music player and the bottom-right corner Matrix.
+        // the bottom-left corner the music player and the bottom-right corner Matrix, unless
+        // settings.json has that corner pulled out instead (dragToOpen).
         // Open panels close once the pointer leaves them (plus a rounding-sized margin).
         HoverHandler {
             id: hover
@@ -116,21 +119,22 @@ Scope {
                 const p = point.position;
                 const hc = Config.notifs.hotCorner;
 
-                if (p.x >= win.width - hc && p.y <= hc)
+                const drag = Settings.dragToOpen;
+                if (!drag.notifications && p.x >= win.width - hc && p.y <= hc)
                     notifs.centreOpen = true;
-                else if (notifs.centreOpen && !near(p, win.width - root.side - notifs.targetWidth, win.width, root.top + notifs.targetHeight))
+                else if (notifs.centreOpen && !notifs.holdOpen && !near(p, win.width - root.side - notifs.targetWidth, win.width, root.top + notifs.targetHeight))
                     notifs.centreOpen = false;
 
                 if (cc.open && !cc.popupOpen && !near(p, (win.width - cc.targetWidth) / 2, (win.width + cc.targetWidth) / 2, root.top + cc.targetHeight))
                     cc.open = false;
 
                 const r = Config.border.rounding;
-                if (p.x <= hc && p.y >= win.height - hc)
+                if (!drag.music && p.x <= hc && p.y >= win.height - hc)
                     music.open = true;
-                else if (music.open && (p.x > root.side + music.targetWidth + r || p.y < win.height - root.side - music.targetHeight - r))
+                else if (music.open && !music.holdOpen && (p.x > root.side + music.targetWidth + r || p.y < win.height - root.side - music.targetHeight - r))
                     music.open = false;
 
-                if (p.x >= win.width - hc && p.y >= win.height - hc)
+                if (!drag.matrix && p.x >= win.width - hc && p.y >= win.height - hc)
                     matrix.open = true;
                 else if (matrix.open && !matrix.holdOpen && (p.x < win.width - root.side - matrix.targetWidth - r || p.y < win.height - root.side - matrix.targetHeight - r))
                     matrix.open = false;
@@ -143,10 +147,12 @@ Scope {
             }
             onHoveredChanged: {
                 if (!hovered) {
-                    notifs.centreOpen = false;
+                    if (!notifs.holdOpen)
+                        notifs.centreOpen = false;
                     if (!cc.popupOpen)
                         cc.open = false;
-                    music.open = false;
+                    if (!music.holdOpen)
+                        music.open = false;
                     if (!matrix.holdOpen)
                         matrix.open = false;
                     if (!dash.dragging && !dash.holdOpen)
@@ -160,9 +166,9 @@ Scope {
             onTapped: (eventPoint, button) => {
                 const p = eventPoint.position;
                 const bottom = p.y >= win.height - root.side;
-                if (bottom && p.x <= root.side && music.open)
+                if (bottom && p.x <= root.side && music.open && !Settings.dragToOpen.music)
                     music.goHome();
-                else if (bottom && p.x >= win.width - root.side && matrix.open)
+                else if (bottom && p.x >= win.width - root.side && matrix.open && !Settings.dragToOpen.matrix)
                     matrix.goHome();
             }
         }
@@ -170,30 +176,48 @@ Scope {
         // Dragging the bottom border up pulls out the dashboard. The gap above it and the
         // peeking sliver count too, so the grab doesn't need a precise aim. The corners stay
         // free for the music player and Matrix.
-        MouseArea {
-            property real startY
-            property real startHeight
-
+        PanelDrag {
+            panel: dash
             anchors.bottom: parent.bottom
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.leftMargin: root.side + Config.border.rounding
             anchors.rightMargin: root.side + Config.border.rounding
             height: root.side + Config.hyprland.gapsOut + (dash.peek && !dash.open ? Config.dashboard.peek : 0)
-            hoverEnabled: true
-            cursorShape: Qt.SizeVerCursor
             onContainsMouseChanged: dash.peek = containsMouse
-            onPressed: mouse => {
-                startY = mapToItem(win.contentItem, mouse.x, mouse.y).y;
-                startHeight = dash.height;
-                dash.dragTo(startHeight);
-            }
-            onPositionChanged: mouse => {
-                if (pressed)
-                    dash.dragTo(startHeight + startY - mapToItem(win.contentItem, mouse.x, mouse.y).y);
-            }
-            onReleased: dash.release()
-            onCanceled: dash.release()
+        }
+
+        // Corners set to dragToOpen: their panels get pulled out of the border the same way.
+        // Clicking one whose panel is open takes that client back to its home view.
+        PanelDrag {
+            panel: notifs
+            downwards: true
+            visible: Settings.dragToOpen.notifications
+            anchors.top: parent.top
+            anchors.right: parent.right
+            // Stops short of the battery icon in the bar.
+            width: root.side + Config.bar.padding
+            height: root.top
+        }
+
+        PanelDrag {
+            panel: music
+            visible: Settings.dragToOpen.music
+            anchors.bottom: parent.bottom
+            anchors.left: parent.left
+            width: root.side + Config.border.rounding
+            height: root.side + Config.border.rounding
+            onClicked: if (startHeight > 0) music.goHome()
+        }
+
+        PanelDrag {
+            panel: matrix
+            visible: Settings.dragToOpen.matrix
+            anchors.bottom: parent.bottom
+            anchors.right: parent.right
+            width: root.side + Config.border.rounding
+            height: root.side + Config.border.rounding
+            onClicked: if (startHeight > 0) matrix.goHome()
         }
 
         // An oversized rectangle whose thick border reaches past the screen edges;

@@ -52,6 +52,25 @@ in
     description = "The systemd user target that starts the shell.";
   };
 
+  dragToOpen =
+    lib.genAttrs
+      [
+        "notifications"
+        "music"
+        "matrix"
+      ]
+      (
+        corner:
+        mkOption {
+          type = types.bool;
+          default = false;
+          description = ''
+            Pull the ${corner} panel out of its corner's border, like the dashboard, instead of
+            opening it when the pointer reaches the corner.
+          '';
+        }
+      );
+
   navidrome = login {
     name = "Navidrome";
     url = "";

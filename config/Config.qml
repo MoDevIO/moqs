@@ -76,7 +76,8 @@ Singleton {
         readonly property int height: 420
         // How far it peeks out while the pointer rests on the bottom border.
         readonly property int peek: 14
-        // Fraction of its height it must be pulled up to stay open on release.
+        // Fraction of its height it must be pulled up to stay open on release; the same goes
+        // for corner panels set to be pulled out (dragToOpen in settings.json).
         readonly property real openAt: 0.3
         readonly property int padding: 12
         readonly property int spacing: 8

@@ -9,9 +9,26 @@ Item {
     id: root
 
     property bool open: false
+    // Keeps it open after a pull until the pointer has been on it.
+    property bool holdOpen
+    // Height while being pulled out of the border, or -1 when not.
+    property real dragHeight: -1
+    readonly property bool dragging: dragHeight >= 0
 
     readonly property real targetWidth: open ? Config.music.width : 0
     readonly property real targetHeight: open ? Config.music.height : 0
+
+    function dragTo(h: real): void {
+        dragHeight = Math.max(0, Math.min(Config.music.height, h));
+    }
+
+    // Opens if pulled far enough, and stays open until the pointer has been on it: a pull
+    // past its full size leaves the pointer outside the frame.
+    function release(): void {
+        open = dragHeight >= Config.music.height * Config.dashboard.openAt;
+        holdOpen = open;
+        dragHeight = -1;
+    }
 
     // Leaving the search swaps the list out and destroys the row that was clicked, so these
     // take the ID up front and run here, not in the row.
@@ -79,12 +96,14 @@ Item {
     }
 
     onOpenChanged: {
+        if (!open)
+            holdOpen = false;
         if (open && Navidrome.configured && Navidrome.albums.length === 0)
             Navidrome.loadAlbums(mode.current);
     }
 
-    width: targetWidth
-    height: targetHeight
+    width: dragging ? Config.music.width : targetWidth
+    height: dragging ? dragHeight : targetHeight
     visible: width > 0 && height > 0
 
     Behavior on width {
@@ -92,7 +111,13 @@ Item {
     }
 
     Behavior on height {
+        enabled: !root.dragging
+
         Anim {}
+    }
+
+    HoverHandler {
+        onHoveredChanged: if (hovered) root.holdOpen = false
     }
 
     Background {
@@ -110,7 +135,7 @@ Item {
             width: Config.music.width
             height: Config.music.height
             spacing: Config.controlCentre.spacing
-            opacity: root.open ? 1 : 0
+            opacity: root.open || root.dragging ? 1 : 0
 
             Behavior on opacity {
                 Anim {}

@@ -16,14 +16,30 @@ Item {
     // Opened by a notification's Reply: the frame then takes the keyboard so the message field
     // gets typing straight away, until the panel closes.
     property bool replying
-    // Keeps the panel open after a Reply until the pointer has arrived on it: on the way the
-    // pointer leaves the frame (the clicked popup vanishes), which would otherwise close it.
+    // Keeps the panel open after a Reply or a pull until the pointer has arrived on it: on the
+    // way the pointer leaves the frame, which would otherwise close it.
     property bool holdOpen
+    // Height while being pulled out of the border, or -1 when not.
+    property real dragHeight: -1
+    readonly property bool dragging: dragHeight >= 0
+
     // Room list search: filters rooms by name and searches messages.
     property string query
 
     readonly property real targetWidth: open ? Config.matrix.width : 0
     readonly property real targetHeight: open ? Config.matrix.height : 0
+
+    function dragTo(h: real): void {
+        dragHeight = Math.max(0, Math.min(Config.matrix.height, h));
+    }
+
+    // Opens if pulled far enough, and stays open until the pointer has been on it: a pull
+    // past its full size leaves the pointer outside the frame.
+    function release(): void {
+        open = dragHeight >= Config.matrix.height * Config.dashboard.openAt;
+        holdOpen = open;
+        dragHeight = -1;
+    }
 
     readonly property var room: {
         Matrix.version;
@@ -157,8 +173,8 @@ Item {
     // Keep the open room marked as read while new messages arrive.
     onMessagesChanged: if (open && roomId) readDelay.restart()
 
-    width: targetWidth
-    height: targetHeight
+    width: dragging ? Config.matrix.width : targetWidth
+    height: dragging ? dragHeight : targetHeight
     visible: width > 0 && height > 0
 
     Behavior on width {
@@ -166,6 +182,8 @@ Item {
     }
 
     Behavior on height {
+        enabled: !root.dragging
+
         Anim {}
     }
 
@@ -191,7 +209,7 @@ Item {
             width: Config.matrix.width
             height: Config.matrix.height
             spacing: Config.controlCentre.spacing
-            opacity: root.open ? 1 : 0
+            opacity: root.open || root.dragging ? 1 : 0
 
             Behavior on opacity {
                 Anim {}

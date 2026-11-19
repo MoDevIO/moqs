@@ -28,6 +28,9 @@ let
   shell = pkgs.runCommand "moqs-config" { } ''
     cp -r ${self.packages.${pkgs.stdenv.hostPlatform.system}.default} $out
     chmod -R u+w $out
+    cp ${
+      pkgs.writeText "settings.json" (builtins.toJSON { inherit (cfg) dragToOpen; })
+    } $out/settings.json
     ${lib.optionalString cfg.navidrome.enable ''
       cp ${pkgs.writeText "navidrome.json" (settings cfg.navidrome { })} $out/navidrome.json
       ln -s ${pkgs.mpvScripts.mpris} $out/mpv-mpris

@@ -11,18 +11,42 @@ Item {
 
     required property ShellScreen screen
     property bool centreOpen: false
+    // Keeps the centre open after a pull until the pointer has been on it.
+    property bool holdOpen
+    // Height while being pulled out of the border, or -1 when not.
+    property real dragHeight: -1
+    readonly property bool dragging: dragHeight >= 0
 
     readonly property bool focusedScreen: Hyprland.focusedMonitor?.name === screen.name
     readonly property bool showPopups: !centreOpen && focusedScreen && Notifs.popups.length > 0
     readonly property real maxHeight: screen.height * Config.notifs.maxHeight
 
-    onCentreOpenChanged: if (centreOpen) Notifs.hidePopups()
+    readonly property real centreHeight: Math.min(centre.wantedHeight, maxHeight)
+
+    onCentreOpenChanged: {
+        if (centreOpen)
+            Notifs.hidePopups();
+        else
+            holdOpen = false;
+    }
+
+    function dragTo(h: real): void {
+        dragHeight = Math.max(0, Math.min(centreHeight, h));
+    }
+
+    // Opens if pulled far enough, and stays open until the pointer has been on it: a pull
+    // past its full size leaves the pointer outside the frame.
+    function release(): void {
+        centreOpen = dragHeight >= centreHeight * Config.dashboard.openAt;
+        holdOpen = centreOpen;
+        dragHeight = -1;
+    }
 
     readonly property real targetWidth: centreOpen || showPopups ? Config.notifs.width : 0
-    readonly property real targetHeight: centreOpen ? Math.min(centre.wantedHeight, maxHeight) : showPopups ? popups.implicitHeight : 0
+    readonly property real targetHeight: centreOpen ? centreHeight : showPopups ? popups.implicitHeight : 0
 
-    width: targetWidth
-    height: targetHeight
+    width: dragging ? Config.notifs.width : targetWidth
+    height: dragging ? dragHeight : targetHeight
     visible: width > 0 && height > 0
 
     Behavior on width {
@@ -30,11 +54,17 @@ Item {
     }
 
     Behavior on height {
+        enabled: !root.dragging
+
         Anim {}
     }
 
     HoverHandler {
-        onHoveredChanged: Notifs.paused = hovered
+        onHoveredChanged: {
+            Notifs.paused = hovered;
+            if (hovered)
+                root.holdOpen = false;
+        }
     }
 
     Background {
@@ -54,7 +84,7 @@ Item {
             width: Config.notifs.width
             padding: Config.notifs.padding
             spacing: Config.notifs.spacing
-            opacity: root.centreOpen ? 0 : 1
+            opacity: root.centreOpen || root.dragging ? 0 : 1
             // A faded-out layer still catches clicks, so hide it once the fade is done.
             visible: opacity > 0
 
@@ -81,7 +111,7 @@ Item {
             width: Config.notifs.width
             height: root.maxHeight
             spacing: Config.notifs.spacing
-            opacity: root.centreOpen ? 1 : 0
+            opacity: root.centreOpen || root.dragging ? 1 : 0
             // Otherwise the invisible centre sits on top of the popups and swallows their clicks.
             visible: opacity > 0
 
