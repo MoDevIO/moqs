@@ -1,8 +1,10 @@
 import QtQuick
+import QtQuick.Layouts
 import qs.config
+import qs.services
 
-// Pulled up from the bottom border. Empty for now; Home Assistant, WebUntis and
-// weather go here later.
+// Pulled up from the bottom border: timetable and homework from WebUntis. Home Assistant
+// and weather go here later.
 Item {
     id: root
 
@@ -31,7 +33,12 @@ Item {
         dragHeight = -1;
     }
 
-    onOpenChanged: if (!open) holdOpen = false
+    onOpenChanged: {
+        if (!open)
+            holdOpen = false;
+        else
+            WebUntis.refreshIfStale();
+    }
 
     width: targetWidth
     height: dragging ? dragHeight : open ? fullHeight : peek ? Config.dashboard.peek : 0
@@ -73,6 +80,30 @@ Item {
                 height: 4
                 radius: 2
                 color: Config.colours.muted
+            }
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: Config.dashboard.padding
+                anchors.topMargin: Config.dashboard.padding + 10
+                spacing: Config.dashboard.spacing
+                opacity: root.open || root.dragging ? 1 : 0
+
+                Behavior on opacity {
+                    Anim {}
+                }
+
+                Timetable {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.preferredWidth: 1
+                }
+
+                Homework {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.preferredWidth: 1
+                }
             }
         }
     }

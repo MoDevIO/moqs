@@ -12,25 +12,40 @@ let
 
   # The panels read these JSON files next to shell.qml.
   settings =
-    login:
-    builtins.toJSON {
-      inherit (login) url username;
-      passwordCommand =
-        if login.passwordCommand != null then
-          login.passwordCommand
-        else
-          "cat ${lib.escapeShellArg login.passwordFile}";
-    };
+    login: extra:
+    builtins.toJSON (
+      {
+        inherit (login) url username;
+        passwordCommand =
+          if login.passwordCommand != null then
+            login.passwordCommand
+          else
+            "cat ${lib.escapeShellArg login.passwordFile}";
+      }
+      // extra
+    );
 
   shell = pkgs.runCommand "moqs-config" { } ''
     cp -r ${self.packages.${pkgs.stdenv.hostPlatform.system}.default} $out
     chmod -R u+w $out
     ${lib.optionalString cfg.navidrome.enable ''
-      cp ${pkgs.writeText "navidrome.json" (settings cfg.navidrome)} $out/navidrome.json
+      cp ${pkgs.writeText "navidrome.json" (settings cfg.navidrome { })} $out/navidrome.json
       ln -s ${pkgs.mpvScripts.mpris} $out/mpv-mpris
     ''}
     ${lib.optionalString cfg.matrix.enable ''
-      cp ${pkgs.writeText "matrix.json" (settings cfg.matrix)} $out/matrix.json
+      cp ${pkgs.writeText "matrix.json" (settings cfg.matrix { })} $out/matrix.json
+    ''}
+    ${lib.optionalString cfg.webuntis.enable ''
+      cp ${
+        pkgs.writeText "webuntis.json" (
+          settings cfg.webuntis (
+            {
+              inherit (cfg.webuntis) school;
+            }
+            // lib.optionalAttrs (cfg.webuntis.homeworkFile != null) { inherit (cfg.webuntis) homeworkFile; }
+          )
+        )
+      } $out/webuntis.json
     ''}
   '';
 
@@ -54,9 +69,14 @@ in
         assertions =
           loginAssertions "navidrome" cfg.navidrome
           ++ loginAssertions "matrix" cfg.matrix
+          ++ loginAssertions "webuntis" cfg.webuntis
           ++ lib.optional cfg.navidrome.enable {
             assertion = cfg.navidrome.url != "";
             message = "services.moqs.navidrome.url must be set.";
+          }
+          ++ lib.optional cfg.webuntis.enable {
+            assertion = cfg.webuntis.url != "";
+            message = "services.moqs.webuntis.url must be set.";
           };
 
         programs.quickshell = {

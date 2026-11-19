@@ -32,9 +32,9 @@ Scope {
         WlrLayershell.namespace: "shell-frame"
         WlrLayershell.layer: WlrLayer.Top
         WlrLayershell.exclusionMode: ExclusionMode.Ignore
-        // Lets text fields (Wi-Fi password, music search, messages) take typing while their panel is open.
+        // Lets text fields (Wi-Fi password, music search, messages, homework) take typing while their panel is open.
         // A Matrix reply takes the keyboard outright, so the message field gets it without a click.
-        WlrLayershell.keyboardFocus: matrix.replying ? WlrKeyboardFocus.Exclusive : cc.open || music.open || matrix.open ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
+        WlrLayershell.keyboardFocus: matrix.replying ? WlrKeyboardFocus.Exclusive : cc.open || music.open || matrix.open || dash.open ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
 
         anchors {
             top: true

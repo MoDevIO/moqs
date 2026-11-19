@@ -59,21 +59,47 @@ in
     usernameDescription = "Navidrome username.";
   };
 
-  matrix = login {
-    name = "Matrix";
-    url = "http://localhost:29325";
-    urlExample = "http://localhost:29325";
-    usernameDescription = "Username of the gomuks web login (set on gomuks-web's first run), not the Matrix account.";
-  }
-  // {
-    gomuks.enable = mkOption {
-      type = types.bool;
-      default = true;
-      description = ''
-        Run gomuks-web as a systemd user service. It is the backend the Matrix panel talks to,
-        and handles sync and end-to-end encryption. Run `gomuks-web` once by hand first to set
-        its web login, then log into Matrix at http://localhost:29325.
-      '';
+  webuntis =
+    login {
+      name = "WebUntis";
+      url = "";
+      urlExample = "https://mese.webuntis.com";
+      usernameDescription = "WebUntis username.";
+    }
+    // {
+      school = mkOption {
+        type = types.str;
+        example = "Example-School";
+        description = "School name as WebUntis knows it: the `school=` part of the WebUntis login page's URL.";
+      };
+
+      homeworkFile = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        example = "/home/alice/Documents/homework.txt";
+        description = ''
+          Text file holding your own homework and which homework you ticked off. Created when
+          first needed. `null` uses `$XDG_STATE_HOME/moqs/homework.txt`.
+        '';
+      };
     };
-  };
+
+  matrix =
+    login {
+      name = "Matrix";
+      url = "http://localhost:29325";
+      urlExample = "http://localhost:29325";
+      usernameDescription = "Username of the gomuks web login (set on gomuks-web's first run), not the Matrix account.";
+    }
+    // {
+      gomuks.enable = mkOption {
+        type = types.bool;
+        default = true;
+        description = ''
+          Run gomuks-web as a systemd user service. It is the backend the Matrix panel talks to,
+          and handles sync and end-to-end encryption. Run `gomuks-web` once by hand first to set
+          its web login, then log into Matrix at http://localhost:29325.
+        '';
+      };
+    };
 }

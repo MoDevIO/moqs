@@ -17,7 +17,7 @@ A minimal [Quickshell](https://quickshell.org) shell for Hyprland. Black frame a
 | Top centre | Control centre: Wi-Fi, Bluetooth, AirDrop and power profile tiles with lists, volume, brightness, now playing | Click the clock |
 | Bottom left | Navidrome music player, playing through mpv | Push the pointer into the corner |
 | Bottom right | Matrix client with end-to-end encryption through gomuks | Push the pointer into the corner |
-| Bottom centre | Dashboard: empty for now | Drag the bottom border up |
+| Bottom centre | Dashboard: WebUntis timetable and homework | Drag the bottom border up |
 
 - **Notifications:** action buttons, history in the notification centre, and timers that pause while hovered.
 - **AirDrop** (via [Owly](https://github.com/t4t5/owly)):
@@ -28,6 +28,8 @@ A minimal [Quickshell](https://quickshell.org) shell for Hyprland. Black frame a
 - **Bluetooth:** connect, disconnect and pair.
 - **Music:** search, album lists (new, random, most played), queueing a whole album from any track, seeking. Plays are reported back to Navidrome. The player shows up over MPRIS as "Navidrome", so `playerctl -p mpv` and media keys control it.
 - **Matrix:** room list with avatars and unread counts, conversations, sending with Markdown, older history on scroll.
+- **Timetable** (WebUntis): today's lessons until the last one is over, then the next day that has lessons. The lesson running now is highlighted, and cancelled or changed lessons are marked. Back-to-back lessons with the same subject, teacher, room and notes show as one long lesson.
+- **Homework:** WebUntis homework by due date, with your own entries on top. Tick any of them off. Your own entries and ticks are kept in a plain text file (`$XDG_STATE_HOME/moqs/homework.txt` by default), one per line as `[ ] text` or `[x] text`, so you can edit it by hand too.
 
 Panels close once the pointer leaves them. Clicking the music or Matrix corner while its panel is open goes back to that panel's start page.
 
@@ -66,6 +68,14 @@ The flake has a Home Manager module and a NixOS wrapper around it, both configur
       username = "gomuks"; # the gomuks web login, not your Matrix account
       passwordCommand = "pass show gomuks";
     };
+
+    webuntis = {
+      enable = true;
+      url = "https://mese.webuntis.com"; # your school's WebUntis server
+      school = "Example-School";         # the school= part of the login page's URL
+      username = "me";
+      passwordCommand = "pass show webuntis";
+    };
   };
 }
 ```
@@ -84,7 +94,7 @@ This needs the Home Manager NixOS module as well. The settings are passed on to 
   services.moqs = {
     enable = true;
     user = "alice";
-    # navidrome = { … }; matrix = { … }; as above
+    # navidrome = { … }; matrix = { … }; webuntis = { … }; as above
   };
 }
 ```
@@ -94,7 +104,7 @@ Don't put `homeManagerModules.default` in a NixOS module list. It stops with an 
 ### What the module does
 
 - Turns on `programs.quickshell`, started from `hyprland-session.target`. Change the target with `services.moqs.systemdTarget`.
-- Installs the shell to `~/.config/quickshell`, together with `navidrome.json` and `matrix.json` generated from your settings.
+- Installs the shell to `~/.config/quickshell`, together with `navidrome.json`, `matrix.json` and `webuntis.json` generated from your settings.
 - Installs the programs the shell runs:
   - always: `brightnessctl`, `curl` and `libnotify`
   - with Navidrome enabled: `mpv`, plus [mpv-mpris](https://github.com/hoyon/mpv-mpris) loaded into the shell's own mpv
@@ -118,6 +128,12 @@ Passwords never go into the Nix store. Give exactly one of `passwordFile` (read 
 | `matrix.username` | (none) | gomuks web username |
 | `matrix.passwordFile` / `passwordCommand` | `null` | gomuks web password |
 | `matrix.gomuks.enable` | `true` | Run gomuks-web as a user service |
+| `webuntis.enable` | `false` | Configure the timetable and homework widgets |
+| `webuntis.url` | (none) | WebUntis server, e.g. `https://mese.webuntis.com` |
+| `webuntis.school` | (none) | School name (`school=` in the login page's URL) |
+| `webuntis.username` | (none) | WebUntis username |
+| `webuntis.passwordFile` / `passwordCommand` | `null` | WebUntis password |
+| `webuntis.homeworkFile` | `null` | Your own homework and ticks; `null` means `$XDG_STATE_HOME/moqs/homework.txt` |
 
 ## Requirements the module doesn't cover
 
@@ -144,7 +160,7 @@ Run the shell straight from a checkout; Quickshell reloads it when files change:
 qs -p ./shell.qml
 ```
 
-Without the Nix module, put the panel settings next to `shell.qml`. Both files are gitignored:
+Without the Nix module, put the panel settings next to `shell.qml`. These files are gitignored:
 
 ```jsonc
 // navidrome.json
@@ -152,9 +168,12 @@ Without the Nix module, put the panel settings next to `shell.qml`. Both files a
 
 // matrix.json
 { "url": "http://localhost:29325", "username": "gomuks", "password": "…" }
+
+// webuntis.json ("homeworkFile" is optional)
+{ "url": "https://mese.webuntis.com", "school": "Example-School", "username": "me", "password": "…" }
 ```
 
-Both accept `"passwordCommand"` instead of `"password"`. For MPRIS (playerctl) on the music player, link in mpv-mpris; restart the shell's mpv afterwards if it is already running:
+All accept `"passwordCommand"` instead of `"password"`. For MPRIS (playerctl) on the music player, link in mpv-mpris; restart the shell's mpv afterwards if it is already running:
 
 ```sh
 nix build .#mpv-mpris -o mpv-mpris
@@ -166,7 +185,7 @@ Sizes, colours and fonts live in `config/Config.qml`.
 shell.qml        entry point: one frame per screen
 config/          Config singleton: sizes, colours, fonts
 modules/         Frame, bar, notifications, control centre, music, matrix, dashboard
-services/        Notifications, Owly, Navidrome, mpv player, Matrix, brightness, CPU/RAM
+services/        Notifications, Owly, Navidrome, mpv player, Matrix, WebUntis, brightness, CPU/RAM
 nix/             package, Home Manager and NixOS modules
 ```
 

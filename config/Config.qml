@@ -63,6 +63,18 @@ Singleton {
         readonly property int peek: 14
         // Fraction of its height it must be pulled up to stay open on release.
         readonly property real openAt: 0.3
+        readonly property int padding: 12
+        readonly property int spacing: 8
+    }
+
+    readonly property QtObject webuntis: QtObject {
+        // Days ahead fetched to find the next school day, and homework looked at.
+        readonly property int days: 14
+        // Back-to-back lessons with the same details merge into one if the break between
+        // them is at most this many minutes.
+        readonly property int mergeGap: 15
+        // Minutes between refreshes.
+        readonly property int refresh: 15
     }
 
     readonly property QtObject power: QtObject {
