@@ -121,7 +121,7 @@ Scope {
                 else if (notifs.centreOpen && !near(p, win.width - root.side - notifs.targetWidth, win.width, root.top + notifs.targetHeight))
                     notifs.centreOpen = false;
 
-                if (cc.open && !near(p, (win.width - cc.targetWidth) / 2, (win.width + cc.targetWidth) / 2, root.top + cc.targetHeight))
+                if (cc.open && !cc.popupOpen && !near(p, (win.width - cc.targetWidth) / 2, (win.width + cc.targetWidth) / 2, root.top + cc.targetHeight))
                     cc.open = false;
 
                 const r = Config.border.rounding;
@@ -144,7 +144,8 @@ Scope {
             onHoveredChanged: {
                 if (!hovered) {
                     notifs.centreOpen = false;
-                    cc.open = false;
+                    if (!cc.popupOpen)
+                        cc.open = false;
                     music.open = false;
                     if (!matrix.holdOpen)
                         matrix.open = false;

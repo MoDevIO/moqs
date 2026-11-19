@@ -12,6 +12,8 @@ Rectangle {
     property string subtitle
     property bool enabled: true
     property bool expanded
+    // The chevron, for a popover to open from.
+    readonly property Item expandButton: expand
 
     signal clicked
     signal expandClicked
@@ -77,6 +79,8 @@ Rectangle {
 
         // Opens the device list.
         ExpandButton {
+            id: expand
+
             expanded: root.expanded
             inverted: root.checked
             enabled: root.enabled

@@ -4,8 +4,10 @@ import Quickshell.Services.Pipewire
 import qs.config
 
 // Audio outputs to pick from; the default one is white.
-Rectangle {
+Item {
     id: root
+
+    signal picked
 
     // Hardware and network outputs, not the streams playing into them.
     readonly property var sinks: Pipewire.nodes.values.filter(n => n.isSink && !n.isStream && n.audio)
@@ -26,13 +28,13 @@ Rectangle {
     }
 
     implicitHeight: layout.implicitHeight + 12
-    radius: Config.border.rounding - Config.controlCentre.padding / 2
-    color: Config.colours.card
 
     ColumnLayout {
         id: layout
 
-        anchors.fill: parent
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
         anchors.margins: 6
         spacing: 2
 
@@ -46,7 +48,10 @@ Rectangle {
                 active: Pipewire.defaultAudioSink?.id === modelData.id
                 icon: root.icon(modelData)
                 title: modelData.description || modelData.nickname || modelData.name
-                onClicked: Pipewire.preferredDefaultAudioSink = modelData
+                onClicked: {
+                    Pipewire.preferredDefaultAudioSink = modelData;
+                    root.picked();
+                }
             }
         }
 

@@ -7,6 +7,8 @@ import qs.services
 Rectangle {
     id: root
 
+    signal picked
+
     implicitHeight: layout.implicitHeight + 12
     radius: Config.border.rounding - Config.controlCentre.padding / 2
     color: Config.colours.card
@@ -28,7 +30,10 @@ Rectangle {
                 active: PowerProfiles.profile === modelData
                 icon: PowerProfiles.icon(modelData)
                 title: PowerProfiles.name(modelData)
-                onClicked: PowerProfiles.set(modelData)
+                onClicked: {
+                    PowerProfiles.set(modelData);
+                    root.picked();
+                }
             }
         }
     }

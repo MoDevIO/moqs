@@ -10,6 +10,9 @@ Rectangle {
     property bool inverted
     property bool enabled: true
 
+    // Where the last click landed, for a popover to open from.
+    property point clickPos
+
     signal clicked
 
     implicitWidth: 28
@@ -40,6 +43,9 @@ Rectangle {
         hoverEnabled: true
         enabled: root.enabled
         cursorShape: Qt.PointingHandCursor
-        onClicked: root.clicked()
+        onClicked: mouse => {
+            root.clickPos = Qt.point(mouse.x, mouse.y);
+            root.clicked();
+        }
     }
 }

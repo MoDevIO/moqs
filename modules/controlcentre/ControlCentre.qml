@@ -12,8 +12,21 @@ Item {
     id: root
 
     property bool open: false
-    // Which list is shown: "", "wifi", "bluetooth", "airdrop", "power" or "audio".
+    // Which list's popover is up: "", "wifi", "bluetooth", "airdrop", "power" or "audio".
     property string expanded: ""
+    // A popover is up; it's its own window, so the pointer leaving for it mustn't close this.
+    readonly property bool popupOpen: popover.visible
+
+    // Opens the list named from its chevron, where it was clicked; again closes it.
+    function toggle(name: string, button: Item): void {
+        if (expanded === name && popover.visible) {
+            popover.close();
+            return;
+        }
+        // The list first, so the popover opens at its size.
+        expanded = name;
+        popover.openAt(button, button.clickPos.x, button.clickPos.y);
+    }
 
     readonly property real targetWidth: open ? Config.controlCentre.width : 0
     readonly property real targetHeight: open ? content.implicitHeight : 0
@@ -31,8 +44,10 @@ Item {
     readonly property var btConnected: adapter?.devices.values.filter(d => d.connected) ?? []
 
     onOpenChanged: {
-        if (!open)
+        if (!open) {
             expanded = "";
+            popover.close();
+        }
         if (open) {
             Brightness.refresh();
             PowerProfiles.refresh();
@@ -98,7 +113,7 @@ Item {
                     subtitle: !checked ? "Off" : root.ssid || "Not connected"
                     expanded: root.expanded === "wifi"
                     onClicked: Networking.wifiEnabled = !Networking.wifiEnabled
-                    onExpandClicked: root.expanded = expanded ? "" : "wifi"
+                    onExpandClicked: root.toggle("wifi", expandButton)
                 }
 
                 Tile {
@@ -111,7 +126,7 @@ Item {
                     subtitle: !root.adapter ? "No adapter" : !checked ? "Off" : root.btConnected.length === 0 ? "Not connected" : root.btConnected.map(d => d.name).join(", ")
                     expanded: root.expanded === "bluetooth"
                     onClicked: root.adapter.enabled = !root.adapter.enabled
-                    onExpandClicked: root.expanded = expanded ? "" : "bluetooth"
+                    onExpandClicked: root.toggle("bluetooth", expandButton)
                 }
 
                 Tile {
@@ -123,7 +138,7 @@ Item {
                     subtitle: Owly.error || (!Owly.radioUp ? "Radio unavailable" : checked ? "Receiving" : "Off")
                     expanded: root.expanded === "airdrop"
                     onClicked: Owly.setReceiving(!Owly.receiving)
-                    onExpandClicked: root.expanded = expanded ? "" : "airdrop"
+                    onExpandClicked: root.toggle("airdrop", expandButton)
                 }
 
                 // White unless on the default, balanced; click cycles through the profiles.
@@ -137,36 +152,7 @@ Item {
                     subtitle: PowerProfiles.available ? PowerProfiles.name(PowerProfiles.profile) : "Unavailable"
                     expanded: root.expanded === "power"
                     onClicked: PowerProfiles.cycle()
-                    onExpandClicked: root.expanded = expanded ? "" : "power"
-                }
-            }
-
-            WifiList {
-                Layout.fillWidth: true
-                visible: active
-                active: root.expanded === "wifi"
-                devices: root.wifi
-            }
-
-            BluetoothList {
-                Layout.fillWidth: true
-                visible: active
-                active: root.expanded === "bluetooth"
-                adapter: root.adapter
-            }
-
-            PowerProfileList {
-                Layout.fillWidth: true
-                visible: root.expanded === "power"
-            }
-
-            AirDropList {
-                Layout.fillWidth: true
-                visible: active
-                active: root.expanded === "airdrop"
-                onPicked: device => {
-                    Owly.pick(device);
-                    root.open = false;
+                    onExpandClicked: root.toggle("power", expandButton)
                 }
             }
 
@@ -190,14 +176,11 @@ Item {
                 }
 
                 ExpandButton {
-                    expanded: root.expanded === "audio"
-                    onClicked: root.expanded = expanded ? "" : "audio"
-                }
-            }
+                    id: audioButton
 
-            AudioOutputList {
-                Layout.fillWidth: true
-                visible: root.expanded === "audio"
+                    expanded: root.expanded === "audio" && popover.visible
+                    onClicked: root.toggle("audio", audioButton)
+                }
             }
 
             Slider {
@@ -214,6 +197,68 @@ Item {
             Item {
                 implicitHeight: Config.controlCentre.padding - Config.controlCentre.spacing
             }
+        }
+    }
+
+    // The lists behind the chevrons, one at a time.
+    Popover {
+        id: popover
+
+        onVisibleChanged: if (!visible && !reopening) root.expanded = ""
+
+        Loader {
+            width: parent.width
+            sourceComponent: ({ wifi: wifiList, bluetooth: bluetoothList, airdrop: airdropList, power: powerList, audio: audioList })[root.expanded] ?? null
+        }
+    }
+
+    Component {
+        id: wifiList
+
+        WifiList {
+            color: "transparent"
+            active: true
+            devices: root.wifi
+        }
+    }
+
+    Component {
+        id: bluetoothList
+
+        BluetoothList {
+            color: "transparent"
+            active: true
+            adapter: root.adapter
+        }
+    }
+
+    Component {
+        id: airdropList
+
+        AirDropList {
+            color: "transparent"
+            active: true
+            onPicked: device => {
+                Owly.pick(device);
+                root.open = false;
+            }
+        }
+    }
+
+    Component {
+        id: powerList
+
+        PowerProfileList {
+            color: "transparent"
+            onPicked: popover.close()
+        }
+    }
+
+    Component {
+        id: audioList
+
+        AudioOutputList {
+            onPicked: popover.close()
         }
     }
 
