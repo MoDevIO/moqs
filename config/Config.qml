@@ -57,7 +57,7 @@ Singleton {
     }
 
     readonly property QtObject dashboard: QtObject {
-        readonly property int width: 900
+        readonly property int width: 1400
         readonly property int height: 420
         // How far it peeks out while the pointer rests on the bottom border.
         readonly property int peek: 14
@@ -75,6 +75,19 @@ Singleton {
         readonly property int mergeGap: 15
         // Minutes between refreshes.
         readonly property int refresh: 15
+    }
+
+    readonly property QtObject weather: QtObject {
+        // Days in the forecast (today included) and hours in the hourly row.
+        readonly property int days: 7
+        readonly property int hours: 6
+        // Minutes between refreshes.
+        readonly property int refresh: 15
+    }
+
+    readonly property QtObject hass: QtObject {
+        // Seconds between Home Assistant updates while the dashboard is open.
+        readonly property int poll: 5
     }
 
     readonly property QtObject power: QtObject {
@@ -100,6 +113,10 @@ Singleton {
         readonly property color buttonHover: "#323232"
         readonly property color active: "#ffffff"
         readonly property color activeText: "#000000"
+        // Cancelled lessons and homework due today or overdue, tomorrow, within three days.
+        readonly property color red: "#ff5f57"
+        readonly property color orange: "#ff9f43"
+        readonly property color yellow: "#f9d65c"
     }
 
     readonly property QtObject hyprland: QtObject {

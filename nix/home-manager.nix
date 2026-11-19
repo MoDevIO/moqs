@@ -40,12 +40,31 @@ let
         pkgs.writeText "webuntis.json" (
           settings cfg.webuntis (
             {
-              inherit (cfg.webuntis) school;
+              inherit (cfg.webuntis) school cancelledRooms subjects;
             }
             // lib.optionalAttrs (cfg.webuntis.homeworkFile != null) { inherit (cfg.webuntis) homeworkFile; }
           )
         )
       } $out/webuntis.json
+    ''}
+    ${lib.optionalString cfg.hass.enable ''
+      cp ${
+        pkgs.writeText "hass.json" (
+          builtins.toJSON {
+            inherit (cfg.hass) url sections;
+            tokenCommand =
+              if cfg.hass.tokenCommand != null then
+                cfg.hass.tokenCommand
+              else
+                "cat ${lib.escapeShellArg cfg.hass.tokenFile}";
+          }
+        )
+      } $out/hass.json
+    ''}
+    ${lib.optionalString cfg.weather.enable ''
+      cp ${
+        pkgs.writeText "weather.json" (builtins.toJSON { inherit (cfg.weather) location; })
+      } $out/weather.json
     ''}
   '';
 
@@ -73,6 +92,10 @@ in
           ++ lib.optional cfg.navidrome.enable {
             assertion = cfg.navidrome.url != "";
             message = "services.moqs.navidrome.url must be set.";
+          }
+          ++ lib.optional cfg.hass.enable {
+            assertion = (cfg.hass.tokenFile == null) != (cfg.hass.tokenCommand == null);
+            message = "services.moqs.hass: set exactly one of tokenFile or tokenCommand.";
           }
           ++ lib.optional cfg.webuntis.enable {
             assertion = cfg.webuntis.url != "";

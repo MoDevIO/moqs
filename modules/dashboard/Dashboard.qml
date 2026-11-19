@@ -3,8 +3,8 @@ import QtQuick.Layouts
 import qs.config
 import qs.services
 
-// Pulled up from the bottom border: timetable and homework from WebUntis. Home Assistant
-// and weather go here later.
+// Pulled up from the bottom border: timetable and homework from WebUntis, the weather and
+// Home Assistant.
 Item {
     id: root
 
@@ -33,11 +33,22 @@ Item {
         dragHeight = -1;
     }
 
+    // Home Assistant polls only while the dashboard is up.
+    Binding {
+        target: HomeAssistant
+        property: "active"
+        value: root.open
+    }
+
     onOpenChanged: {
-        if (!open)
+        if (!open) {
             holdOpen = false;
-        else
+        } else {
+            // Back to the automatic day after browsing.
+            WebUntis.selectedDate = 0;
             WebUntis.refreshIfStale();
+            Weather.refreshIfStale();
+        }
     }
 
     width: targetWidth
@@ -100,6 +111,18 @@ Item {
                 }
 
                 Homework {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.preferredWidth: 1
+                }
+
+                WeatherCard {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.preferredWidth: 1
+                }
+
+                HomeCard {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     Layout.preferredWidth: 1

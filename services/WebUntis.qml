@@ -9,7 +9,9 @@ import qs.config
 // Settings come from webuntis.json next to shell.qml:
 //   { "url": "https://mese.webuntis.com", "school": "Example-School", "username": "me",
 //     "passwordCommand": "pass show webuntis", "homeworkFile": "/path/to/homework.txt" }
-// "password" works instead of "passwordCommand"; "homeworkFile" is optional.
+// "password" works instead of "passwordCommand". Optional: "homeworkFile",
+// "cancelledRooms": ["Eva"] to show lessons in those rooms as cancelled, and
+// "subjects": [{ "name": "Eng", "untis": "Englisch" }], short names to type for new homework.
 //
 // Requests go through curl with the credentials and session cookie on stdin (curl -K -),
 // which keeps them out of the process list. The homework endpoint needs the session cookie,
@@ -32,13 +34,17 @@ Singleton {
     // [{ date, start, end, subject, teachers, rooms, text, cancelled, changed }]
     // date is YYYYMMDD, start and end are HHMM, as WebUntis has them.
     property var lessons: []
+    // Dates whose lessons have been fetched (date: true), so browsing knows what to load.
+    property var loaded: ({})
+    property bool loadingWeek
     // WebUntis homework due today or later: [{ id, subject, text, due, completed }], subject
     // as its short name.
     property var remoteHomework: []
     // Short subject name to long name, from the school's subject list and the timetable.
     property var subjectNames: ({})
 
-    // Local homework from the text file: [{ text, done }], and the WebUntis homework ticked off.
+    // Local homework from the text file: [{ text, subject, due, done }], and the WebUntis
+    // homework ticked off.
     property var localHomework: []
     property var ticked: ({})
 
@@ -55,13 +61,22 @@ Singleton {
         const next = lessons.find(l => l.date > today);
         return next ? next.date : 0;
     }
-    readonly property var shownLessons: lessons.filter(l => l.date === shownDate)
+    // A day picked with the arrows, or 0 for shownDate.
+    property int selectedDate: 0
+    readonly property int viewDate: selectedDate || shownDate
+    readonly property var shownLessons: lessons.filter(l => l.date === viewDate)
 
-    // Local homework first, then WebUntis homework by due date.
+    // Rooms whose lessons count as cancelled, lower case.
+    readonly property var cancelledRooms: Array.from(settings.cancelledRooms ?? []).map(r => String(r).toLowerCase())
+
+    // Own and WebUntis homework together: open before done, then by due date (none last).
     readonly property var homework: [
-        ...localHomework.map((h, i) => ({ local: true, index: i, text: h.text, subject: "", due: 0, done: h.done, locked: false })),
+        ...localHomework.map((h, i) => ({ local: true, index: i, text: h.text, subject: h.subject, due: h.due, done: h.done, locked: false })),
         ...remoteHomework.map(h => ({ local: false, id: h.id, text: h.text, subject: longName(h.subject), due: h.due, done: h.completed || !!ticked[h.id], locked: h.completed }))
-    ]
+    ].sort((a, b) => a.done - b.done || (a.due || 99999999) - (b.due || 99999999))
+
+    // Short names to type for new homework, with their WebUntis names.
+    readonly property var subjects: Array.from(settings.subjects ?? []).map(x => ({ name: String(x.name ?? ""), untis: String(x.untis ?? x.name ?? "") })).filter(x => x.name || x.untis)
 
     readonly property string homeworkPath: {
         const set = settings.homeworkFile.replace(/^~(?=\/)/, Quickshell.env("HOME"));
@@ -89,6 +104,94 @@ Singleton {
         return dateInt(d);
     }
 
+    // How soon homework is due: "late" (overdue or today), "soon" (tomorrow), "near" (within
+    // three days) or "".
+    function urgency(due: int): string {
+        if (!due)
+            return "";
+        if (due <= today)
+            return "late";
+        if (due === addDays(today, 1))
+            return "soon";
+        return due <= addDays(today, 3) ? "near" : "";
+    }
+
+    // Reads a new homework entry: a subject (a short name from "subjects" or its WebUntis name)
+    // and a due date are picked out of the text and removed from it. Without a date, the
+    // subject's next lesson sets it. Returns { subject, due, guessed, text }.
+    function parseEntry(input: string): var {
+        let text = " " + input.replace(/\s+/g, " ") + " ";
+        const take = re => {
+            const m = text.match(re);
+            if (m)
+                text = text.slice(0, m.index) + " " + text.slice(m.index + m[0].length);
+            return m;
+        };
+        const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        // Whole words, with the space or punctuation before them (Qt's JavaScript has no
+        // lookbehind, and \b doesn't know umlauts).
+        const word = (s, end) => new RegExp(`[\\s,;:(]${s}(?=${end ?? "[\\s,;:.!?)]"})`, "i");
+        // A date may come with a linking word ("bis 21.11."), which goes too.
+        const date = (s, end) => word(`(?:(?:bis|zum|zu|am|für|fuer|until|due|by|on)\\s+)?${s}`, end);
+
+        // Subject, longest names first so "Evangelische Religion" beats "Religion".
+        let subject = "";
+        const names = [];
+        for (const sub of subjects)
+            for (const n of [sub.name, sub.untis])
+                if (n)
+                    names.push({ n, untis: sub.untis || sub.name });
+        names.sort((a, b) => b.n.length - a.n.length);
+        for (const c of names)
+            if (take(word(esc(c.n)))) {
+                subject = c.untis;
+                break;
+            }
+
+        // Due date: 2026-11-21, 21.11.2026, 21.11., today/tomorrow, or a weekday.
+        let due = 0;
+        let m;
+        if ((m = take(date("(\\d{4})-(\\d{1,2})-(\\d{1,2})")))) {
+            due = Number(m[1]) * 10000 + Number(m[2]) * 100 + Number(m[3]);
+        } else if ((m = take(date("(\\d{1,2})\\.(\\d{1,2})\\.(\\d{4}|\\d{2})?", "[\\s,;:!?)]")))) {
+            const year = m[3] ? (m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3])) : Math.floor(today / 10000);
+            due = year * 10000 + Number(m[2]) * 100 + Number(m[1]);
+            // Without a year, a date that has passed means next year's.
+            if (!m[3] && due < today)
+                due += 10000;
+        } else if (take(date("(?:übermorgen|uebermorgen)"))) {
+            due = addDays(today, 2);
+        } else if (take(date("(?:morgen|tomorrow)"))) {
+            due = addDays(today, 1);
+        } else if (take(date("(?:heute|today)"))) {
+            due = today;
+        } else {
+            const days = [["sonntag", "sunday"], ["montag", "monday"], ["dienstag", "tuesday"], ["mittwoch", "wednesday"], ["donnerstag", "thursday"], ["freitag", "friday"], ["samstag", "saturday"]];
+            for (let i = 0; i < 7 && !due; i++)
+                if (take(date(`(?:${days[i].join("|")})`))) {
+                    // The coming one; today's weekday means next week.
+                    due = addDays(today, (i - toDate(today).getDay() + 7) % 7 || 7);
+                }
+        }
+        // Only real dates (no 31.02.).
+        if (due && dateInt(toDate(due)) !== due)
+            due = 0;
+
+        let guessed = false;
+        if (!due && subject) {
+            const next = lessons.find(l => l.date > today && !l.cancelled && l.subject.toLowerCase() === subject.toLowerCase());
+            if (next) {
+                due = next.date;
+                guessed = true;
+            }
+        }
+        return { subject, due, guessed, text: text.replace(/\s+/g, " ").replace(/^[\s,;:\-–]+|[\s,;:\-–]+$/g, "") };
+    }
+
+    function isoDate(n: int): string {
+        return `${Math.floor(n / 10000)}-${String(Math.floor(n / 100) % 100).padStart(2, "0")}-${String(n % 100).padStart(2, "0")}`;
+    }
+
     function minutes(hhmm: int): int {
         return Math.floor(hhmm / 100) * 60 + hhmm % 100;
     }
@@ -105,8 +208,71 @@ Singleton {
             return "Today";
         if (n === addDays(today, 1))
             return "Tomorrow";
+        if (n === addDays(today, -1))
+            return "Yesterday";
         const d = toDate(n);
-        return n < addDays(today, 7) ? Qt.formatDate(d, "dddd") : Qt.formatDate(d, "ddd d MMM");
+        return n > today && n < addDays(today, 7) ? Qt.formatDate(d, "dddd") : Qt.formatDate(d, "ddd d MMM");
+    }
+
+    // The previous or next school day (weekends skipped), fetching its week if needed.
+    function step(direction: int): void {
+        let d = addDays(viewDate || today, direction);
+        while ([0, 6].includes(toDate(d).getDay()))
+            d = addDays(d, direction);
+        selectedDate = d;
+        if (!loaded[d])
+            loadWeek(d);
+    }
+
+    function loadWeek(d: int): void {
+        if (!configured || loadingWeek)
+            return;
+        const monday = addDays(d, -((toDate(d).getDay() + 6) % 7));
+        loadingWeek = true;
+        session((cookie, element, done) => timetable(cookie, element, monday, addDays(monday, 6), done), () => loadingWeek = false);
+    }
+
+    // Logs in, runs work(cookie, element, done) and logs out once work calls done.
+    function session(work: var, finished: var): void {
+        rpc("", "authenticate", { user: settings.username, password: password, client: "moqs" }, auth => {
+            const cookie = `JSESSIONID=${auth.sessionId}; schoolname="_${Qt.btoa(settings.school)}"`;
+            // Students see their own timetable; other accounts fall back to their class.
+            const element = auth.personId ? { id: auth.personId, type: auth.personType } : { id: auth.klasseId, type: 1 };
+            work(cookie, element, () => {
+                rpc(cookie, "logout", {}, () => {});
+                finished();
+            });
+        }, finished);
+    }
+
+    // Fetches the lessons from start to end and puts them in place of those days' old ones.
+    function timetable(cookie: string, element: var, start: int, end: int, done: var): void {
+        rpc(cookie, "getTimetable", {
+            options: {
+                element,
+                startDate: start,
+                endDate: end,
+                showLsText: true,
+                showSubstText: true,
+                showInfo: true,
+                subjectFields: ["name", "longname"],
+                teacherFields: ["name"],
+                roomFields: ["name"]
+            }
+        }, res => {
+            lessons = lessons.filter(l => l.date < start || l.date > end).concat(merge(res ?? [])).sort((a, b) => a.date - b.date || a.start - b.start);
+            const marks = Object.assign({}, loaded);
+            for (let d = start; d <= end; d = addDays(d, 1))
+                marks[d] = true;
+            loaded = marks;
+            const names = Object.assign({}, subjectNames);
+            for (const l of res ?? [])
+                for (const su of l.su ?? [])
+                    if (su.name && su.longname && !names[su.name])
+                        names[su.name] = su.longname;
+            subjectNames = names;
+            done();
+        }, done);
     }
 
     // Refresh when shown, unless the data is only a few minutes old.
@@ -121,39 +287,14 @@ Singleton {
         loading = true;
         // Also on failure, so a wrong password isn't retried every minute.
         lastRefresh = Date.now();
-        rpc("", "authenticate", { user: settings.username, password: password, client: "moqs" }, auth => {
-            const cookie = `JSESSIONID=${auth.sessionId}; schoolname="_${Qt.btoa(settings.school)}"`;
-            // Students see their own timetable; other accounts fall back to their class.
-            const element = auth.personId ? { id: auth.personId, type: auth.personType } : { id: auth.klasseId, type: 1 };
+        session((cookie, element, done) => {
             let pending = 3;
             const finish = () => {
-                if (--pending > 0)
-                    return;
-                rpc(cookie, "logout", {}, () => {});
-                loading = false;
+                if (--pending === 0)
+                    done();
             };
-            rpc(cookie, "getTimetable", {
-                options: {
-                    element,
-                    startDate: today,
-                    endDate: addDays(today, Config.webuntis.days),
-                    showLsText: true,
-                    showSubstText: true,
-                    showInfo: true,
-                    subjectFields: ["name", "longname"],
-                    teacherFields: ["name"],
-                    roomFields: ["name"]
-                }
-            }, res => {
-                lessons = merge(res ?? []);
-                const names = Object.assign({}, subjectNames);
-                for (const l of res ?? [])
-                    for (const su of l.su ?? [])
-                        if (su.name && su.longname && !names[su.name])
-                            names[su.name] = su.longname;
-                subjectNames = names;
-                finish();
-            }, finish);
+            // From a week back, for browsing to past days.
+            timetable(cookie, element, addDays(today, -7), addDays(today, Config.webuntis.days), finish);
             rpc(cookie, "getSubjects", {}, res => {
                 const names = Object.assign({}, subjectNames);
                 for (const su of res ?? [])
@@ -195,7 +336,7 @@ Singleton {
             teachers: names(l.te, "name").join(", "),
             rooms: names(l.ro, "name").join(", "),
             text: [l.substText, l.lstext, l.info].filter(x => x).join(" · "),
-            cancelled: l.code === "cancelled",
+            cancelled: l.code === "cancelled" || (l.ro ?? []).some(r => root.cancelledRooms.includes(String(r.name ?? "").toLowerCase())),
             changed: l.code === "irregular"
         })).sort((a, b) => a.date - b.date || a.start - b.start);
         const key = l => [l.subject, l.teachers, l.rooms, l.text, l.cancelled, l.changed].join("\u0001");
@@ -283,7 +424,9 @@ Singleton {
         }
     }
 
-    // Local homework file. One entry per line: "[ ] text" to do, "[x] text" done.
+    // Local homework file. One entry per line, "[ ]" to do and "[x]" done:
+    //   [ ] 2026-11-21 | Englisch | S. 42 Nr. 3
+    // Date and subject may be empty ("[ ] - | | text"), or left out for plain "[ ] text".
     // "[x] untis:<id>" ticks off a WebUntis homework; anything after the id is a reminder.
     function parseHomework(text: string): void {
         const local = [];
@@ -298,7 +441,9 @@ Singleton {
                 if (done)
                     marks[remote[1]] = true;
             } else if (m[2].trim()) {
-                local.push({ text: m[2].trim(), done });
+                const parts = m[2].match(/^\s*(\d{4}-\d{2}-\d{2}|-)?\s*\|\s*(.*?)\s*\|\s*(.*)$/);
+                const due = parts?.[1] && parts[1] !== "-" ? Number(parts[1].replace(/-/g, "")) : 0;
+                local.push(parts ? { text: parts[3].trim(), subject: parts[2], due, done } : { text: m[2].trim(), subject: "", due: 0, done });
             }
         }
         localHomework = local;
@@ -306,7 +451,7 @@ Singleton {
     }
 
     function saveHomework(): void {
-        const lines = ["# moqs homework. One per line: \"[ ] text\" to do, \"[x] text\" done.", "# \"[x] untis:<id>\" ticks off a WebUntis homework.", ...localHomework.map(h => `[${h.done ? "x" : " "}] ${h.text}`)];
+        const lines = ["# moqs homework. One per line, \"[ ]\" to do and \"[x]\" done: \"[ ] 2026-11-21 | Englisch | S. 42 Nr. 3\".", "# \"[x] untis:<id>\" ticks off a WebUntis homework.", ...localHomework.map(h => `[${h.done ? "x" : " "}] ${h.due ? isoDate(h.due) : "-"} | ${h.subject.replace(/\|/g, "/")} | ${h.text}`)];
         for (const id of Object.keys(ticked)) {
             const h = remoteHomework.find(r => r.id === id);
             lines.push(`[x] untis:${id}${h ? `  ${[h.subject, h.text].filter(x => x).join(": ").replace(/\s+/g, " ").slice(0, 80)}` : ""}`);
@@ -314,12 +459,14 @@ Singleton {
         homeworkFile.setText(lines.join("\n") + "\n");
     }
 
-    function addHomework(text: string): void {
-        const t = text.replace(/\s+/g, " ").trim();
-        if (!t)
-            return;
-        localHomework = [{ text: t, done: false }, ...localHomework];
+    // Adds an entry from typed text; false (and nothing added) without a subject or date.
+    function addHomework(input: string): bool {
+        const e = parseEntry(input);
+        if (!e.subject || !e.due)
+            return false;
+        localHomework = [{ text: e.text, subject: e.subject, due: e.due, done: false }, ...localHomework];
         saveHomework();
+        return true;
     }
 
     function removeHomework(index: int): void {
@@ -329,7 +476,7 @@ Singleton {
 
     function toggle(entry: var): void {
         if (entry.local) {
-            localHomework = localHomework.map((h, i) => i === entry.index ? { text: h.text, done: !h.done } : h);
+            localHomework = localHomework.map((h, i) => i === entry.index ? Object.assign({}, h, { done: !h.done }) : h);
         } else if (!entry.locked) {
             const t = Object.assign({}, ticked);
             if (t[entry.id])
@@ -382,6 +529,8 @@ Singleton {
             property string password
             property string passwordCommand
             property string homeworkFile
+            property var cancelledRooms: []
+            property var subjects: []
 
             // Set the command here: a binding on it would update only after this handler runs.
             onPasswordCommandChanged: {

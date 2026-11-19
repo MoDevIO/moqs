@@ -2,12 +2,14 @@ import QtQuick
 import QtQuick.Layouts
 import qs.config
 
-// A dashboard widget: rounded card with a title, a note on the right and the content below.
+// A dashboard widget: rounded card with a title, a note on the right (followed by an optional
+// accessory, such as buttons) and the content below.
 Rectangle {
     id: root
 
     property string title
     property string note
+    property Component accessory
     default property alias content: body.data
 
     radius: Config.border.rounding
@@ -39,6 +41,12 @@ Rectangle {
                 color: Config.colours.subtext
                 font.family: Config.font.family
                 font.pointSize: Config.font.small
+            }
+
+            Loader {
+                active: !!root.accessory
+                visible: active
+                sourceComponent: root.accessory
             }
         }
 

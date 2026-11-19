@@ -3,10 +3,15 @@ import QtQuick.Layouts
 import qs.config
 import qs.services
 
-// Homework: your own entries on top, then WebUntis's by due date. Everything can be ticked
-// off; ticks and own entries live in a local text file.
+// Homework, your own and WebUntis's, by due date and coloured by how soon it's due. Everything
+// can be ticked off; ticks and own entries live in a local text file. New entries need a
+// subject and a date, both picked out of the typed text (see WebUntis.parseEntry).
 Card {
     id: root
+
+    function dueColour(due: int): color {
+        return ({ late: Config.colours.red, soon: Config.colours.orange, near: Config.colours.yellow })[WebUntis.urgency(due)] ?? Config.colours.subtext;
+    }
 
     title: "Homework"
     note: {
@@ -52,18 +57,66 @@ Card {
                 clip: true
 
                 onAccepted: {
-                    WebUntis.addHomework(text);
-                    text = "";
+                    if (WebUntis.addHomework(text))
+                        text = "";
                 }
                 Keys.onEscapePressed: text = ""
 
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
                     visible: !input.text
-                    text: "Add homework"
+                    text: "Add homework: Eng S. 42 bis 21.11."
                     color: Config.colours.muted
                     font: input.font
                 }
+            }
+        }
+
+        // What the typed text becomes: subject and due date, then the rest as the description.
+        ColumnLayout {
+            id: preview
+
+            readonly property var entry: WebUntis.parseEntry(input.text)
+            readonly property string names: WebUntis.subjects.map(s => s.name).slice(0, 4).join(", ")
+
+            Layout.fillWidth: true
+            Layout.leftMargin: 12
+            Layout.rightMargin: 12
+            visible: input.text.trim() !== ""
+            spacing: 2
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                Text {
+                    text: preview.entry.subject || (preview.names ? `Subject? (${preview.names}…)` : "Subject? Set \"subjects\"")
+                    color: preview.entry.subject ? Config.colours.text : Config.colours.red
+                    font.family: Config.font.family
+                    font.pointSize: Config.font.small
+                    font.bold: !!preview.entry.subject
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: preview.entry.due ? WebUntis.dayName(preview.entry.due) + (preview.entry.guessed ? " (next lesson)" : "") : "Date?"
+                    elide: Text.ElideRight
+                    color: preview.entry.due ? root.dueColour(preview.entry.due) : Config.colours.red
+                    font.family: Config.font.family
+                    font.pointSize: Config.font.small
+                }
+            }
+
+            Text {
+                Layout.fillWidth: true
+                visible: text !== ""
+                text: preview.entry.text
+                wrapMode: Text.Wrap
+                maximumLineCount: 2
+                elide: Text.ElideRight
+                color: Config.colours.subtext
+                font.family: Config.font.family
+                font.pointSize: Config.font.small
             }
         }
 
@@ -104,6 +157,18 @@ Card {
 
                     HoverHandler {
                         id: hover
+                    }
+
+                    // Due soon: a coloured edge.
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: 4
+                        width: 3
+                        height: parent.height - 16
+                        radius: 1.5
+                        visible: !entry.modelData.done && WebUntis.urgency(entry.modelData.due) !== ""
+                        color: root.dueColour(entry.modelData.due)
                     }
 
                     MouseArea {
@@ -168,7 +233,7 @@ Card {
                                 Text {
                                     visible: entry.modelData.due !== 0
                                     text: WebUntis.dayName(entry.modelData.due)
-                                    color: Config.colours.subtext
+                                    color: entry.modelData.done ? Config.colours.subtext : root.dueColour(entry.modelData.due)
                                     font.family: Config.font.family
                                     font.pointSize: Config.font.small
                                 }

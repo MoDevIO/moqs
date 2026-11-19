@@ -2,6 +2,8 @@
 navidrome.json
 matrix.json
 webuntis.json
+weather.json
+hass.json
 
 # mpv-mpris for the music player, linked in by the Home Manager module or `nix build .#mpv-mpris -o mpv-mpris`
 mpv-mpris

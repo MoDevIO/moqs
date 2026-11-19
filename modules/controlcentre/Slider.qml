@@ -8,6 +8,7 @@ Item {
     property real value
     property string icon
     property bool dimmed
+    property color trackColour: Config.colours.card
 
     signal moved(real value)
     signal iconClicked
@@ -19,7 +20,7 @@ Item {
 
         anchors.fill: parent
         radius: height / 2
-        color: Config.colours.card
+        color: root.trackColour
         clip: true
 
         Rectangle {

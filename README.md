@@ -17,7 +17,7 @@ A minimal [Quickshell](https://quickshell.org) shell for Hyprland. Black frame a
 | Top centre | Control centre: Wi-Fi, Bluetooth, AirDrop and power profile tiles with lists, volume, brightness, now playing | Click the clock |
 | Bottom left | Navidrome music player, playing through mpv | Push the pointer into the corner |
 | Bottom right | Matrix client with end-to-end encryption through gomuks | Push the pointer into the corner |
-| Bottom centre | Dashboard: WebUntis timetable and homework | Drag the bottom border up |
+| Bottom centre | Dashboard: WebUntis timetable and homework, weather, Home Assistant | Drag the bottom border up |
 
 - **Notifications:** action buttons, history in the notification centre, and timers that pause while hovered.
 - **AirDrop** (via [Owly](https://github.com/t4t5/owly)):
@@ -28,8 +28,10 @@ A minimal [Quickshell](https://quickshell.org) shell for Hyprland. Black frame a
 - **Bluetooth:** connect, disconnect and pair.
 - **Music:** search, album lists (new, random, most played), queueing a whole album from any track, seeking. Plays are reported back to Navidrome. The player shows up over MPRIS as "Navidrome", so `playerctl -p mpv` and media keys control it.
 - **Matrix:** room list with avatars and unread counts, conversations, sending with Markdown, older history on scroll.
-- **Timetable** (WebUntis): today's lessons until the last one is over, then the next day that has lessons. The lesson running now is highlighted, and cancelled or changed lessons are marked. Back-to-back lessons with the same subject, teacher, room and notes show as one long lesson.
-- **Homework:** WebUntis homework by due date, with your own entries on top. Tick any of them off. Your own entries and ticks are kept in a plain text file (`$XDG_STATE_HOME/moqs/homework.txt` by default), one per line as `[ ] text` or `[x] text`, so you can edit it by hand too.
+- **Timetable** (WebUntis): today's lessons until the last one is over, then the next day that has lessons. The lesson running now is highlighted, and cancelled or changed lessons are marked. Back-to-back lessons with the same subject, teacher, room and notes show as one long lesson. Arrows in the header browse other school days; reopening the dashboard goes back. Cancelled lessons are red; lessons in rooms listed in `cancelledRooms` count as cancelled.
+- **Homework:** WebUntis homework and your own, by due date: red when due today or overdue, orange for tomorrow, yellow within three days. Tick any of them off. To add one, type its subject (a short name from `subjects`, or the WebUntis name), the task and optionally a date, e.g. `Eng S. 42 bis 21.11.`: subject and date are picked out and shown under the field before you press Enter. Dates can be `21.11.`, `21.11.2026`, `2026-11-21`, today/heute, tomorrow/morgen, übermorgen or a weekday; without one, the subject's next lesson sets it. Your own entries and ticks are kept in a plain text file (`$XDG_STATE_HOME/moqs/homework.txt` by default), one per line as `[ ] 2026-11-21 | Englisch | S. 42`, so you can edit it by hand too.
+- **Weather** (from [Open-Meteo](https://open-meteo.com), no API key): now, the coming hours, and the week with each day's range. Set a place name, a GeoNames ID or coordinates.
+- **Home Assistant:** a card laid out the way `hass.json` says: switches and lights (with a brightness slider when they dim), scene and script buttons, single values, and blocks of values side by side. It updates every few seconds while the dashboard is open.
 
 Panels close once the pointer leaves them. Clicking the music or Matrix corner while its panel is open goes back to that panel's start page.
 
@@ -76,6 +78,29 @@ The flake has a Home Manager module and a NixOS wrapper around it, both configur
       username = "me";
       passwordCommand = "pass show webuntis";
     };
+
+    weather = {
+      enable = true;
+      location = "Frankfurt, DE"; # or a GeoNames ID like "2925533", or "50.11,8.68"
+    };
+
+    hass = {
+      enable = true;
+      url = "http://homeassistant.local:8123";
+      tokenCommand = "pass show hass"; # or tokenFile; a long-lived access token
+      sections = [
+        { type = "toggle"; entity = "light.mo"; }
+        {
+          type = "sensors";
+          title = "Energy";
+          entities = [
+            { entity = "sensor.foxess_pvenergytotal"; name = "Produced"; icon = "mdi:solar-power"; }
+            { entity = "sensor.foxess_load"; name = "Used"; icon = "mdi:home-lightning-bolt"; }
+            { entity = "sensor.batterie"; name = "Battery"; }
+          ];
+        }
+      ];
+    };
   };
 }
 ```
@@ -94,7 +119,7 @@ This needs the Home Manager NixOS module as well. The settings are passed on to 
   services.moqs = {
     enable = true;
     user = "alice";
-    # navidrome = { … }; matrix = { … }; webuntis = { … }; as above
+    # navidrome = { … }; matrix = { … }; webuntis = { … }; weather = { … }; hass = { … }; as above
   };
 }
 ```
@@ -104,7 +129,7 @@ Don't put `homeManagerModules.default` in a NixOS module list. It stops with an 
 ### What the module does
 
 - Turns on `programs.quickshell`, started from `hyprland-session.target`. Change the target with `services.moqs.systemdTarget`.
-- Installs the shell to `~/.config/quickshell`, together with `navidrome.json`, `matrix.json` and `webuntis.json` generated from your settings.
+- Installs the shell to `~/.config/quickshell`, together with `navidrome.json`, `matrix.json`, `webuntis.json`, `weather.json` and `hass.json` generated from your settings.
 - Installs the programs the shell runs:
   - always: `brightnessctl`, `curl` and `libnotify`
   - with Navidrome enabled: `mpv`, plus [mpv-mpris](https://github.com/hoyon/mpv-mpris) loaded into the shell's own mpv
@@ -133,7 +158,15 @@ Passwords never go into the Nix store. Give exactly one of `passwordFile` (read 
 | `webuntis.school` | (none) | School name (`school=` in the login page's URL) |
 | `webuntis.username` | (none) | WebUntis username |
 | `webuntis.passwordFile` / `passwordCommand` | `null` | WebUntis password |
+| `webuntis.cancelledRooms` | `[]` | Rooms whose lessons show as cancelled, e.g. `[ "Eva" ]` |
+| `webuntis.subjects` | `[]` | Short names for new homework, e.g. `[ { name = "Eng"; untis = "Englisch"; } ]` |
 | `webuntis.homeworkFile` | `null` | Your own homework and ticks; `null` means `$XDG_STATE_HOME/moqs/homework.txt` |
+| `weather.enable` | `false` | Configure the weather widget |
+| `weather.location` | (none) | Place name (`"Frankfurt, DE"`), GeoNames ID or `"latitude,longitude"` |
+| `hass.enable` | `false` | Configure the Home Assistant widget |
+| `hass.url` | (none) | Home Assistant URL |
+| `hass.tokenFile` / `tokenCommand` | `null` | Long-lived access token (profile page → Security) |
+| `hass.sections` | `[]` | What the card shows; see [Home Assistant card](#home-assistant-card) |
 
 ## Requirements the module doesn't cover
 
@@ -152,6 +185,31 @@ The Matrix panel talks to a local [gomuks](https://github.com/gomuks/gomuks) bac
 
 After that the user service keeps gomuks running and the panel connects on its own.
 
+## Home Assistant card
+
+The card shows the `sections` of `hass.json` (or `services.moqs.hass.sections`) from top to bottom. The token is a long-lived access token from your Home Assistant profile page, under Security.
+
+```json
+"sections": [
+  { "type": "toggle", "entity": "light.mo" },
+  { "type": "sensors", "title": "Energy", "entities": [
+    { "entity": "sensor.foxess_pvenergytotal", "name": "Produced", "icon": "mdi:solar-power" },
+    { "entity": "sensor.foxess_load", "name": "Used", "icon": "mdi:home-lightning-bolt" },
+    "sensor.batterie"
+  ] },
+  { "type": "button", "title": "Scenes", "entities": ["scene.movie", "script.good_night"] }
+]
+```
+
+| `type` | Shows |
+|---|---|
+| `toggle` | Switches entities on and off. Lights that dim get a brightness slider; click its icon to switch |
+| `button` | Runs a scene or script, or presses a button |
+| `sensor` | One value per row |
+| `sensors` | Several values side by side in one block |
+
+Each section takes one `entity` or a list of `entities`, plus an optional `title`. An entity is its ID, or `{ "entity", "name", "icon" }`. Name and icon default to Home Assistant's own. Icons are [Material Design Icons](https://pictogrammers.com/library/mdi/) names like `"mdi:solar-power"`, looked up in `assets/mdi.json` (generated from the Nerd Font). Battery sensors without an icon of their own show their charge.
+
 ## Developing
 
 Run the shell straight from a checkout; Quickshell reloads it when files change:
@@ -169,11 +227,25 @@ Without the Nix module, put the panel settings next to `shell.qml`. These files 
 // matrix.json
 { "url": "http://localhost:29325", "username": "gomuks", "password": "…" }
 
-// webuntis.json ("homeworkFile" is optional)
-{ "url": "https://mese.webuntis.com", "school": "Example-School", "username": "me", "password": "…" }
+// webuntis.json ("cancelledRooms", "subjects" and "homeworkFile" are optional)
+{
+  "url": "https://mese.webuntis.com", "school": "Example-School", "username": "me", "password": "…",
+  "cancelledRooms": ["Eva"],
+  "subjects": [{ "name": "Eng", "untis": "Englisch" }, { "name": "Mathe", "untis": "Mathematik" }]
+}
+
+// weather.json: a place name, a GeoNames ID ("2925533") or "latitude,longitude"
+{ "location": "Frankfurt, DE" }
+
+// hass.json: the card's layout is described below
+{
+  "url": "http://homeassistant.local:8123",
+  "token": "…",
+  "sections": [{ "type": "toggle", "entity": "light.mo" }]
+}
 ```
 
-All accept `"passwordCommand"` instead of `"password"`. For MPRIS (playerctl) on the music player, link in mpv-mpris; restart the shell's mpv afterwards if it is already running:
+The logins accept `"passwordCommand"` instead of `"password"`, and `hass.json` `"tokenCommand"` instead of `"token"`. For MPRIS (playerctl) on the music player, link in mpv-mpris; restart the shell's mpv afterwards if it is already running:
 
 ```sh
 nix build .#mpv-mpris -o mpv-mpris
@@ -185,7 +257,7 @@ Sizes, colours and fonts live in `config/Config.qml`.
 shell.qml        entry point: one frame per screen
 config/          Config singleton: sizes, colours, fonts
 modules/         Frame, bar, notifications, control centre, music, matrix, dashboard
-services/        Notifications, Owly, Navidrome, mpv player, Matrix, WebUntis, brightness, CPU/RAM
+services/        Notifications, Owly, Navidrome, mpv player, Matrix, WebUntis, weather, Home Assistant, brightness, CPU/RAM
 nix/             package, Home Manager and NixOS modules
 ```
 

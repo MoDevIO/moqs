@@ -4,11 +4,26 @@ import qs.config
 import qs.services
 
 // Today's lessons from WebUntis until the last one is over, then the next school day's.
+// The arrows browse other days; reopening the dashboard goes back.
 Card {
     id: root
 
     title: "Timetable"
-    note: WebUntis.dayName(WebUntis.shownDate)
+    note: WebUntis.dayName(WebUntis.viewDate)
+
+    accessory: Row {
+        spacing: 2
+
+        IconButton {
+            icon: "\u{F0141}"
+            onClicked: WebUntis.step(-1)
+        }
+
+        IconButton {
+            icon: "\u{F0142}"
+            onClicked: WebUntis.step(1)
+        }
+    }
 
     Text {
         anchors.centerIn: parent
@@ -16,7 +31,15 @@ Card {
         width: parent.width
         horizontalAlignment: Text.AlignHCenter
         wrapMode: Text.Wrap
-        text: !WebUntis.configured ? "Set up webuntis.json" : WebUntis.error || (WebUntis.loading ? "Loading…" : `No lessons in the next ${Config.webuntis.days} days`)
+        text: {
+            if (!WebUntis.configured)
+                return "Set up webuntis.json";
+            if (WebUntis.error)
+                return WebUntis.error;
+            if (WebUntis.loading || (WebUntis.selectedDate && !WebUntis.loaded[WebUntis.selectedDate]))
+                return "Loading…";
+            return WebUntis.selectedDate ? "No lessons" : `No lessons in the next ${Config.webuntis.days} days`;
+        }
         color: Config.colours.subtext
         font.family: Config.font.family
         font.pointSize: Config.font.small
@@ -36,7 +59,7 @@ Card {
 
             required property var modelData
             readonly property bool current: modelData.date === WebUntis.today && WebUntis.time >= modelData.start && WebUntis.time < modelData.end && !modelData.cancelled
-            readonly property color fg: current ? Config.colours.activeText : modelData.cancelled ? Config.colours.subtext : Config.colours.text
+            readonly property color fg: current ? Config.colours.activeText : modelData.cancelled ? Config.colours.red : Config.colours.text
             readonly property color dim: current ? Qt.alpha(Config.colours.activeText, 0.6) : Config.colours.subtext
 
             width: list.width
@@ -94,7 +117,7 @@ Card {
                         Text {
                             visible: lesson.modelData.cancelled || lesson.modelData.changed
                             text: lesson.modelData.cancelled ? "Cancelled" : "Changed"
-                            color: lesson.dim
+                            color: lesson.modelData.cancelled ? Config.colours.red : lesson.dim
                             font.family: Config.font.family
                             font.pointSize: Config.font.small
                         }
