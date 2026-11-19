@@ -7,6 +7,14 @@ A minimal [Quickshell](https://quickshell.org) shell for Hyprland. Black frame a
 **Bar**
 - Workspaces as dots on the left. 1–5 are always shown, the rest only when they have windows or are active. A white dot slides to the active workspace.
 - Clock in the middle. Clicking it opens the control centre.
+- While volume or brightness changes, the clock turns into a level bar for a moment.
+- For touch strips and other inputs, both can be driven over IPC:
+  ```sh
+  qs ipc call volume press     # shows the level until release
+  qs ipc call volume up        # one step up (5%); down: one step down
+  qs ipc call volume release
+  ```
+  The same works with `brightness`. `release` hides the level right away; `up` and `down` without a `press` show it briefly.
 - CPU and RAM bars plus a battery icon on the right.
 
 **Corners and panels**

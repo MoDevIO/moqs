@@ -46,6 +46,16 @@ Singleton {
         readonly property int spacing: 8
     }
 
+    // The level shown in place of the clock while volume or brightness changes.
+    readonly property QtObject osd: QtObject {
+        // Width of the level bar.
+        readonly property int width: 140
+        // How much one up or down changes the level, 0..1.
+        readonly property real step: 0.05
+        // ms the level stays after the last change, unless pressed.
+        readonly property int timeout: 1500
+    }
+
     readonly property QtObject clipboard: QtObject {
         // Most entries the clipboard list shows.
         readonly property int shown: 50
