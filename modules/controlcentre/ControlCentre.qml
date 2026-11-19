@@ -12,7 +12,7 @@ Item {
     id: root
 
     property bool open: false
-    // Which device list is shown: "", "wifi", "bluetooth", "airdrop" or "power".
+    // Which list is shown: "", "wifi", "bluetooth", "airdrop", "power" or "audio".
     property string expanded: ""
 
     readonly property real targetWidth: open ? Config.controlCentre.width : 0
@@ -170,18 +170,34 @@ Item {
                 }
             }
 
-            Slider {
+            // Volume, with the output list behind the chevron.
+            RowLayout {
                 Layout.fillWidth: true
-                value: root.sink?.audio?.volume ?? 0
-                dimmed: root.sink?.audio?.muted ?? false
-                icon: dimmed || value === 0 ? "\u{F0581}" : "\u{F057E}"
-                onMoved: v => {
-                    if (root.sink?.audio) {
-                        root.sink.audio.muted = false;
-                        root.sink.audio.volume = v;
+                spacing: 4
+
+                Slider {
+                    Layout.fillWidth: true
+                    value: root.sink?.audio?.volume ?? 0
+                    dimmed: root.sink?.audio?.muted ?? false
+                    icon: dimmed || value === 0 ? "\u{F0581}" : "\u{F057E}"
+                    onMoved: v => {
+                        if (root.sink?.audio) {
+                            root.sink.audio.muted = false;
+                            root.sink.audio.volume = v;
+                        }
                     }
+                    onIconClicked: if (root.sink?.audio) root.sink.audio.muted = !root.sink.audio.muted
                 }
-                onIconClicked: if (root.sink?.audio) root.sink.audio.muted = !root.sink.audio.muted
+
+                ExpandButton {
+                    expanded: root.expanded === "audio"
+                    onClicked: root.expanded = expanded ? "" : "audio"
+                }
+            }
+
+            AudioOutputList {
+                Layout.fillWidth: true
+                visible: root.expanded === "audio"
             }
 
             Slider {

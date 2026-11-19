@@ -76,37 +76,11 @@ Rectangle {
         }
 
         // Opens the device list.
-        Rectangle {
-            implicitWidth: 28
-            implicitHeight: 28
-            radius: width / 2
-            color: expandArea.containsMouse ? (root.checked ? Qt.alpha(Config.colours.activeText, 0.1) : Config.colours.button) : "transparent"
-
-            Text {
-                anchors.centerIn: parent
-                text: "\u{F0140}"
-                rotation: root.expanded ? 180 : 0
-                color: root.checked ? Config.colours.activeText : Config.colours.subtext
-                font.family: Config.font.family
-                font.pointSize: Config.font.size
-
-                Behavior on rotation {
-                    NumberAnimation {
-                        duration: 200
-                        easing.type: Easing.OutCubic
-                    }
-                }
-            }
-
-            MouseArea {
-                id: expandArea
-
-                anchors.fill: parent
-                hoverEnabled: true
-                enabled: root.enabled
-                cursorShape: Qt.PointingHandCursor
-                onClicked: root.expandClicked()
-            }
+        ExpandButton {
+            expanded: root.expanded
+            inverted: root.checked
+            enabled: root.enabled
+            onClicked: root.expandClicked()
         }
     }
 }
