@@ -117,6 +117,7 @@ in
           with pkgs;
           [
             brightnessctl
+            cliphist
             curl
             libnotify
             wl-clipboard

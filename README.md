@@ -14,7 +14,7 @@ A minimal [Quickshell](https://quickshell.org) shell for Hyprland. Black frame a
 | Where | What | How to open |
 |---|---|---|
 | Top right | Notification popups and the notification centre | Popups appear on their own; push the pointer into the corner for the centre |
-| Top centre | Control centre: Wi-Fi, Bluetooth, AirDrop and power profile tiles with lists, volume, brightness, now playing | Click the clock |
+| Top centre | Control centre: Wi-Fi, Bluetooth, AirDrop and power profile tiles with lists, clipboard history, volume with output picker, brightness, now playing | Click the clock |
 | Bottom left | Navidrome music player, playing through mpv | Push the pointer into the corner |
 | Bottom right | Matrix client with end-to-end encryption through gomuks | Push the pointer into the corner |
 | Bottom centre | Dashboard: WebUntis timetable and homework, weather, Home Assistant | Drag the bottom border up |
@@ -26,6 +26,7 @@ A minimal [Quickshell](https://quickshell.org) shell for Hyprland. Black frame a
   - A nearby-devices list. Clicking a device opens a drop zone; files dropped there get sent to it.
 - **Wi-Fi:** connect and disconnect from the list, with a password field for new secured networks.
 - **Bluetooth:** connect, disconnect and pair.
+- **Clipboard history** (via [cliphist](https://github.com/sentriz/cliphist)): the shell records what you copy while it runs, text and images. The Clipboard tile lists it newest first with image thumbnails. Type to search, click or press Enter to copy an entry back, ↑/↓ to move, × to remove one, the bin to clear everything. Copies that password managers mark as sensitive aren't kept.
 - **Music:** search, album lists (new, random, most played), queueing a whole album from any track, seeking. Plays are reported back to Navidrome. The player shows up over MPRIS as "Navidrome", so `playerctl -p mpv` and media keys control it.
 - **Matrix:** room list with avatars and unread counts, conversations, sending with Markdown, older history on scroll.
 - **Timetable** (WebUntis): today's lessons until the last one is over, then the next day that has lessons. The lesson running now is highlighted, and cancelled or changed lessons are marked. Back-to-back lessons with the same subject, teacher, room and notes show as one long lesson. Arrows in the header browse other school days; reopening the dashboard goes back. Cancelled lessons are red; lessons in rooms listed in `cancelledRooms` count as cancelled.
@@ -131,7 +132,7 @@ Don't put `homeManagerModules.default` in a NixOS module list. It stops with an 
 - Turns on `programs.quickshell`, started from `hyprland-session.target`. Change the target with `services.moqs.systemdTarget`.
 - Installs the shell to `~/.config/quickshell`, together with `navidrome.json`, `matrix.json`, `webuntis.json`, `weather.json` and `hass.json` generated from your settings.
 - Installs the programs the shell runs:
-  - always: `brightnessctl`, `curl` and `libnotify`
+  - always: `brightnessctl`, `cliphist`, `curl`, `libnotify` and `wl-clipboard`
   - with Navidrome enabled: `mpv`, plus [mpv-mpris](https://github.com/hoyon/mpv-mpris) loaded into the shell's own mpv
   - with Matrix enabled: `gomuks-web`, plus a user service to run it (turn the service off with `matrix.gomuks.enable = false`)
 

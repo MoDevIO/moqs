@@ -12,20 +12,23 @@ Item {
     id: root
 
     property bool open: false
-    // Which list's popover is up: "", "wifi", "bluetooth", "airdrop", "power" or "audio".
+    // Which list's popover is up: "", "wifi", "bluetooth", "airdrop", "power", "audio" or
+    // "clipboard".
     property string expanded: ""
     // A popover is up; it's its own window, so the pointer leaving for it mustn't close this.
     readonly property bool popupOpen: popover.visible
 
     // Opens the list named from its chevron, where it was clicked; again closes it.
-    function toggle(name: string, button: Item): void {
+    // Without a click on the chevron itself, it opens from the chevron's middle.
+    function toggle(name: string, button: Item, centred: bool): void {
         if (expanded === name && popover.visible) {
             popover.close();
             return;
         }
         // The list first, so the popover opens at its size.
         expanded = name;
-        popover.openAt(button, button.clickPos.x, button.clickPos.y);
+        const at = centred ? Qt.point(button.width / 2, button.height / 2) : button.clickPos;
+        popover.openAt(button, at.x, at.y);
     }
 
     readonly property real targetWidth: open ? Config.controlCentre.width : 0
@@ -64,6 +67,14 @@ Item {
 
     Behavior on height {
         Anim {}
+    }
+
+    // Keeps the clipboard list current while the panel is open.
+    Binding {
+        target: Clipboard
+        property: "active"
+        value: true
+        when: root.open
     }
 
     PwObjectTracker {
@@ -154,6 +165,18 @@ Item {
                     onClicked: PowerProfiles.cycle()
                     onExpandClicked: root.toggle("power", expandButton)
                 }
+
+                // Clipboard history; the whole tile opens it.
+                Tile {
+                    Layout.fillWidth: true
+                    Layout.columnSpan: 2
+                    icon: "\u{F014C}"
+                    title: "Clipboard"
+                    subtitle: !Clipboard.available ? "cliphist isn't installed" : Clipboard.describe(Clipboard.entries[0]) || "Nothing copied yet"
+                    expanded: root.expanded === "clipboard"
+                    onClicked: root.toggle("clipboard", expandButton, true)
+                    onExpandClicked: root.toggle("clipboard", expandButton)
+                }
             }
 
             // Volume, with the output list behind the chevron.
@@ -208,7 +231,7 @@ Item {
 
         Loader {
             width: parent.width
-            sourceComponent: ({ wifi: wifiList, bluetooth: bluetoothList, airdrop: airdropList, power: powerList, audio: audioList })[root.expanded] ?? null
+            sourceComponent: ({ wifi: wifiList, bluetooth: bluetoothList, airdrop: airdropList, power: powerList, audio: audioList, clipboard: clipboardList })[root.expanded] ?? null
         }
     }
 
@@ -259,6 +282,14 @@ Item {
 
         AudioOutputList {
             onPicked: popover.close()
+        }
+    }
+
+    Component {
+        id: clipboardList
+
+        ClipboardList {
+            onPicked: root.open = false
         }
     }
 

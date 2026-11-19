@@ -46,6 +46,11 @@ Singleton {
         readonly property int spacing: 8
     }
 
+    readonly property QtObject clipboard: QtObject {
+        // Most entries the clipboard list shows.
+        readonly property int shown: 50
+    }
+
     readonly property QtObject music: QtObject {
         readonly property int width: 420
         readonly property int height: 520
