@@ -71,6 +71,13 @@ Item {
         search.text = "";
     }
 
+    // Back to the room list: clears search and closes the open room.
+    function goHome(): void {
+        clearSearch();
+        pickerFor = "";
+        roomId = "";
+    }
+
     function openRoom(id: string): void {
         roomId = id;
         pickerFor = "";

@@ -28,7 +28,7 @@ A minimal [Quickshell](https://quickshell.org) shell for Hyprland. Black frame a
 - **Music:** search, album lists (new, random, most played), queueing a whole album from any track, seeking. Plays are reported back to Navidrome. The player shows up over MPRIS as "Navidrome", so `playerctl -p mpv` and media keys control it.
 - **Matrix:** room list with avatars and unread counts, conversations, sending with Markdown, older history on scroll.
 
-Panels close once the pointer leaves them.
+Panels close once the pointer leaves them. Clicking the music or Matrix corner while its panel is open goes back to that panel's start page.
 
 ## Install with Nix
 

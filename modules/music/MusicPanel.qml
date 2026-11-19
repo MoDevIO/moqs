@@ -30,6 +30,13 @@ Item {
         Navidrome.openArtist(id);
     }
 
+    // Back to the album list: clears search and any open album or artist.
+    function goHome(): void {
+        leaveSearch();
+        Navidrome.album = null;
+        Navidrome.artist = null;
+    }
+
     function leaveSearch(): void {
         searchDelay.stop();
         search.text = "";

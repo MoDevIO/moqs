@@ -122,6 +122,18 @@ Scope {
             }
         }
 
+        // Clicking a corner whose panel is open takes that client back to its home view.
+        TapHandler {
+            onTapped: (eventPoint, button) => {
+                const p = eventPoint.position;
+                const bottom = p.y >= win.height - root.side;
+                if (bottom && p.x <= root.side && music.open)
+                    music.goHome();
+                else if (bottom && p.x >= win.width - root.side && matrix.open)
+                    matrix.goHome();
+            }
+        }
+
         // An oversized rectangle whose thick border reaches past the screen edges;
         // its inner edge forms the rounded cutout.
         Rectangle {
