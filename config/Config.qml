@@ -56,6 +56,15 @@ Singleton {
         readonly property int height: 580
     }
 
+    readonly property QtObject dashboard: QtObject {
+        readonly property int width: 900
+        readonly property int height: 420
+        // How far it peeks out while the pointer rests on the bottom border.
+        readonly property int peek: 14
+        // Fraction of its height it must be pulled up to stay open on release.
+        readonly property real openAt: 0.3
+    }
+
     readonly property QtObject power: QtObject {
         // Battery level (0..1) at which power saver is offered, on balanced or performance.
         readonly property real lowBattery: 0.2

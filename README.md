@@ -17,6 +17,7 @@ A minimal [Quickshell](https://quickshell.org) shell for Hyprland. Black frame a
 | Top centre | Control centre: Wi-Fi, Bluetooth, AirDrop and power profile tiles with lists, volume, brightness, now playing | Click the clock |
 | Bottom left | Navidrome music player, playing through mpv | Push the pointer into the corner |
 | Bottom right | Matrix client with end-to-end encryption through gomuks | Push the pointer into the corner |
+| Bottom centre | Dashboard: empty for now | Drag the bottom border up |
 
 - **Notifications:** action buttons, history in the notification centre, and timers that pause while hovered.
 - **AirDrop** (via [Owly](https://github.com/t4t5/owly)):
@@ -164,7 +165,7 @@ Sizes, colours and fonts live in `config/Config.qml`.
 ```
 shell.qml        entry point: one frame per screen
 config/          Config singleton: sizes, colours, fonts
-modules/         Frame, bar, notifications, control centre, music, matrix
+modules/         Frame, bar, notifications, control centre, music, matrix, dashboard
 services/        Notifications, Owly, Navidrome, mpv player, Matrix, brightness, CPU/RAM
 nix/             package, Home Manager and NixOS modules
 ```

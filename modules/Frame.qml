@@ -4,6 +4,7 @@ import Quickshell.Wayland
 import qs.config
 import qs.modules.bar
 import qs.modules.controlcentre
+import qs.modules.dashboard
 import qs.modules.matrix
 import qs.modules.music
 import qs.modules.notifications
@@ -74,6 +75,11 @@ Scope {
                 item: matrix
                 intersection: Intersection.Subtract
             }
+
+            Region {
+                item: dash
+                intersection: Intersection.Subtract
+            }
         }
 
         // Pushing the pointer into the top-right corner opens the notification centre,
@@ -110,6 +116,12 @@ Scope {
                     matrix.open = true;
                 else if (matrix.open && !matrix.holdOpen && (p.x < win.width - root.side - matrix.targetWidth - r || p.y < win.height - root.side - matrix.targetHeight - r))
                     matrix.open = false;
+
+                const onDash = p.y >= win.height - root.side - dash.targetHeight && Math.abs(p.x - win.width / 2) <= dash.targetWidth / 2;
+                if (dash.holdOpen && onDash)
+                    dash.holdOpen = false;
+                if (dash.open && !dash.holdOpen && (p.y < win.height - root.side - dash.targetHeight - r || Math.abs(p.x - win.width / 2) > dash.targetWidth / 2 + r))
+                    dash.open = false;
             }
             onHoveredChanged: {
                 if (!hovered) {
@@ -118,6 +130,8 @@ Scope {
                     music.open = false;
                     if (!matrix.holdOpen)
                         matrix.open = false;
+                    if (!dash.dragging && !dash.holdOpen)
+                        dash.open = false;
                 }
             }
         }
@@ -132,6 +146,34 @@ Scope {
                 else if (bottom && p.x >= win.width - root.side && matrix.open)
                     matrix.goHome();
             }
+        }
+
+        // Dragging the bottom border up pulls out the dashboard. The corners stay free for
+        // the music player and Matrix.
+        MouseArea {
+            property real startY
+            property real startHeight
+
+            anchors.bottom: parent.bottom
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.leftMargin: root.side + Config.border.rounding
+            anchors.rightMargin: root.side + Config.border.rounding
+            height: root.side
+            hoverEnabled: true
+            cursorShape: Qt.SizeVerCursor
+            onContainsMouseChanged: dash.peek = containsMouse
+            onPressed: mouse => {
+                startY = mapToItem(win.contentItem, mouse.x, mouse.y).y;
+                startHeight = dash.height;
+                dash.dragTo(startHeight);
+            }
+            onPositionChanged: mouse => {
+                if (pressed)
+                    dash.dragTo(startHeight + startY - mapToItem(win.contentItem, mouse.x, mouse.y).y);
+            }
+            onReleased: dash.release()
+            onCanceled: dash.release()
         }
 
         // An oversized rectangle whose thick border reaches past the screen edges;
@@ -206,6 +248,14 @@ Scope {
             anchors.right: parent.right
             anchors.bottom: parent.bottom
             anchors.rightMargin: root.side
+            anchors.bottomMargin: root.side
+        }
+
+        Dashboard {
+            id: dash
+
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.bottom: parent.bottom
             anchors.bottomMargin: root.side
         }
     }
