@@ -22,7 +22,7 @@ A minimal [Quickshell](https://quickshell.org) shell for Hyprland. Black frame a
 | Where | What | How to open |
 |---|---|---|
 | Top right | Notification popups and the notification centre | Popups appear on their own; push the pointer into the corner for the centre |
-| Top centre | App launcher: type to search installed apps, Enter or click to start one, ↑/↓ or Tab to move, Esc or a click elsewhere to close | `qs ipc call launcher toggle` (also `open`, `close`); bind it to a key in Hyprland |
+| Top centre | App launcher: type to search installed apps (the ones you start most come first) and Matrix rooms; Enter or click to start or open one, ↑/↓ or Tab to move, Esc or a click elsewhere to close. `=` calculates (`=sqrt(2)*3,5`; Enter copies the result), `>` runs a command (Shift+Enter in a terminal, `$TERMINAL` or kitty) | `qs ipc call launcher toggle` (also `open`, `close`); bind it to a key in Hyprland |
 | Top centre | Control centre: Wi-Fi, Bluetooth, AirDrop and power profile tiles with lists, clipboard history, volume with output picker, brightness, now playing | Click the clock |
 | Bottom left | Navidrome music player, playing through mpv | Push the pointer into the corner |
 | Bottom right | Matrix client with end-to-end encryption through gomuks | Push the pointer into the corner |

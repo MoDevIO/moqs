@@ -4,10 +4,14 @@ import Quickshell
 import Quickshell.Widgets
 import qs.config
 import qs.modules.controlcentre as CC
+import qs.modules.matrix as MX
 import qs.modules
+import qs.services
 
-// App launcher that grows out of the middle of the bar. Typing filters the apps; Enter or
-// a click starts one, arrows (or Tab) move, Escape closes.
+// App launcher that grows out of the middle of the bar. Typing filters the apps, the ones
+// used most first, with matching Matrix rooms among them; Enter or a click starts or opens
+// one, arrows (or Tab) move, Escape closes. "=" calculates (Enter copies the result), ">"
+// runs a command (Shift+Enter in a terminal).
 Item {
     id: root
 
@@ -40,17 +44,72 @@ Item {
         return i === q.length ? 10 : 0;
     }
 
+    readonly property string query: search.text.trim()
+    // "apps", "calc" or "run", from the first character.
+    readonly property string mode: query.startsWith("=") ? "calc" : query.startsWith(">") ? "run" : "apps"
+
+    // What the list shows: [{ kind: "app" | "room" | "calc" | "run", … }]
     readonly property var shown: {
-        const q = search.text.trim().toLowerCase();
+        if (mode === "calc") {
+            const expr = query.slice(1).trim();
+            const v = Launcher.calculate(expr);
+            return [{ kind: "calc", expr, result: isNaN(v) ? "" : Launcher.formatNumber(v) }];
+        }
+        if (mode === "run")
+            return [{ kind: "run", command: query.slice(1).trim() }];
+
+        const q = query.toLowerCase();
+        Launcher.usage;
         if (!q)
-            return apps;
-        return apps.map(a => ({ app: a, score: score(a, q) })).filter(m => m.score > 0).sort((a, b) => b.score - a.score).map(m => m.app);
+            return apps.map(a => ({ kind: "app", app: a, score: Launcher.boost(a.id) })).sort((a, b) => b.score - a.score);
+        const out = [];
+        for (const a of apps) {
+            const sc = score(a, q);
+            if (sc > 0)
+                out.push({ kind: "app", app: a, score: sc + Launcher.boost(a.id) });
+        }
+        // Rooms whose name starts with the query, or a word in it does.
+        if (q.length >= 2 && Matrix.configured) {
+            Matrix.version;
+            let rooms = 0;
+            for (const r of Matrix.findRooms(q)) {
+                const name = Matrix.roomName(r).toLowerCase();
+                const sc = name.startsWith(q) ? 85 : name.split(/[\s\-_.]+/).some(w => w.startsWith(q)) ? 75 : 0;
+                if (sc && rooms++ < 4)
+                    out.push({ kind: "room", room: r, score: sc });
+            }
+        }
+        return out.sort((a, b) => b.score - a.score);
     }
 
-    function launch(app: DesktopEntry): void {
-        if (!app)
+    // Starts, opens, copies or runs a row. In a terminal: commands only, with Shift+Enter.
+    function activate(item: var, terminal: bool): void {
+        if (!item)
             return;
-        app.execute();
+        switch (item.kind) {
+        case "app":
+            Launcher.used(item.app.id);
+            item.app.execute();
+            break;
+        case "room":
+            root.closed();
+            // Opens the Matrix panel on the room, with the message field ready.
+            Matrix.replyRequested(item.room.meta.room_id);
+            return;
+        case "calc":
+            if (!item.result)
+                return;
+            Quickshell.execDetached(["wl-copy", "--", item.result]);
+            break;
+        case "run":
+            if (!item.command)
+                return;
+            if (terminal)
+                Quickshell.execDetached([Quickshell.env("TERMINAL") || "kitty", "-e", "sh", "-c", `${item.command}; exec "\${SHELL:-sh}"`]);
+            else
+                Quickshell.execDetached(["sh", "-c", item.command]);
+            break;
+        }
         root.closed();
     }
 
@@ -140,7 +199,8 @@ Item {
                     clip: true
 
                     onTextChanged: list.currentIndex = 0
-                    onAccepted: root.launch(root.shown[list.currentIndex])
+                    Keys.onReturnPressed: event => root.activate(root.shown[list.currentIndex], event.modifiers & Qt.ShiftModifier)
+                    Keys.onEnterPressed: event => root.activate(root.shown[list.currentIndex], event.modifiers & Qt.ShiftModifier)
                     Keys.onDownPressed: list.incrementCurrentIndex()
                     Keys.onUpPressed: list.decrementCurrentIndex()
                     Keys.onTabPressed: list.incrementCurrentIndex()
@@ -150,7 +210,7 @@ Item {
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
                         visible: !search.text
-                        text: "Search apps"
+                        text: "Apps and rooms  ·  = calculate  ·  > run"
                         color: Config.colours.muted
                         font: search.font
                     }
@@ -181,9 +241,10 @@ Item {
                 delegate: Rectangle {
                     id: row
 
-                    required property DesktopEntry modelData
+                    required property var modelData
                     required property int index
                     readonly property bool current: ListView.isCurrentItem
+                    readonly property string kind: modelData.kind
 
                     width: list.width
                     height: root.rowHeight
@@ -196,7 +257,7 @@ Item {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: root.launch(row.modelData)
+                        onClicked: mouse => root.activate(row.modelData, mouse.modifiers & Qt.ShiftModifier)
                     }
 
                     RowLayout {
@@ -205,25 +266,73 @@ Item {
                         anchors.rightMargin: 14
                         spacing: 12
 
-                        IconImage {
+                        Item {
                             Layout.preferredWidth: 28
                             Layout.preferredHeight: 28
-                            source: Quickshell.iconPath(row.modelData.icon, "application-x-executable")
-                            asynchronous: true
+
+                            IconImage {
+                                anchors.fill: parent
+                                visible: row.kind === "app"
+                                source: row.kind === "app" ? Quickshell.iconPath(row.modelData.app.icon, "application-x-executable") : ""
+                                asynchronous: true
+                            }
+
+                            MX.Avatar {
+                                anchors.fill: parent
+                                visible: row.kind === "room"
+                                name: row.kind === "room" ? Matrix.roomName(row.modelData.room) : ""
+                                source: row.kind === "room" ? Matrix.mediaUrl(row.modelData.room.meta.avatar ?? "", false) : ""
+                            }
+
+                            // Calculator and command
+                            Text {
+                                anchors.centerIn: parent
+                                visible: row.kind === "calc" || row.kind === "run"
+                                text: row.kind === "calc" ? "\u{F00EC}" : "\u{F018D}"
+                                color: Config.colours.subtext
+                                font.family: Config.font.family
+                                font.pointSize: Config.font.icon
+                            }
                         }
 
                         Text {
-                            text: row.modelData.name
+                            Layout.maximumWidth: list.width * 0.6
+                            text: {
+                                switch (row.kind) {
+                                case "app":
+                                    return row.modelData.app.name;
+                                case "room":
+                                    return Matrix.roomName(row.modelData.room);
+                                case "calc":
+                                    return row.modelData.result ? `= ${row.modelData.result}` : row.modelData.expr ? "…" : "Type a calculation";
+                                default:
+                                    return row.modelData.command || "Type a command";
+                                }
+                            }
                             elide: Text.ElideRight
-                            color: Config.colours.text
+                            color: (row.kind === "calc" && !row.modelData.result) || (row.kind === "run" && !row.modelData.command) ? Config.colours.subtext : Config.colours.text
                             font.family: Config.font.family
                             font.pointSize: Config.font.size
-                            Layout.maximumWidth: list.width * 0.55
+                            font.bold: row.kind === "calc" && row.modelData.result !== ""
                         }
 
                         Text {
                             Layout.fillWidth: true
-                            text: row.modelData.genericName || row.modelData.comment
+                            text: {
+                                switch (row.kind) {
+                                case "app":
+                                    return row.modelData.app.genericName || row.modelData.app.comment;
+                                case "room": {
+                                    const b = Matrix.bridge(row.modelData.room);
+                                    return b ? `Matrix · ${({ discord: "Discord", signal: "Signal", telegram: "Telegram", whatsapp: "WhatsApp" })[b]}` : "Matrix";
+                                }
+                                case "calc":
+                                    return row.modelData.result ? "Enter copies" : "";
+                                default:
+                                    return row.modelData.command ? "Enter runs · Shift+Enter in a terminal" : "";
+                                }
+                            }
+                            horizontalAlignment: row.kind === "app" || row.kind === "room" ? Text.AlignLeft : Text.AlignRight
                             elide: Text.ElideRight
                             color: Config.colours.subtext
                             font.family: Config.font.family
@@ -237,7 +346,7 @@ Item {
                 Layout.fillWidth: true
                 Layout.leftMargin: 14
                 visible: list.count === 0
-                text: "No apps match"
+                text: "Nothing matches"
                 color: Config.colours.subtext
                 font.family: Config.font.family
                 font.pointSize: Config.font.small
