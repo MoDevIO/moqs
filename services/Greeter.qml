@@ -91,7 +91,16 @@ Singleton {
         const desktop = s.desktops || s.key;
         const env = [`XDG_SESSION_TYPE=${s.type}`, `XDG_SESSION_DESKTOP=${s.key}`, `XDG_CURRENT_DESKTOP=${desktop}`];
         const exec = s.type === "x11" ? `${xWrapper} ${s.exec}` : s.exec;
-        Greetd.launch(["/bin/sh", "-c", `exec ${exec}`], env, true);
+        // The session's output goes to the journal (journalctl -t moqs-session), as with GDM;
+        // otherwise it's printed on the console and lost.
+        const script = `if command -v systemd-cat >/dev/null; then exec systemd-cat -t moqs-session -- ${exec}; else exec ${exec}; fi`;
+        // greetd runs the command as "<source profiles>; exec <arguments joined with spaces>",
+        // so each argument is quoted to survive being joined and read back by the shell.
+        Greetd.launch(["/bin/sh", "-c", script].map(quote), env, true);
+    }
+
+    function quote(arg: string): string {
+        return `'${arg.replace(/'/g, "'\\''")}'`;
     }
 
     function save(): void {

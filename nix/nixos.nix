@@ -52,9 +52,13 @@ let
     export MOQS_DEFAULT_SESSION=${lib.escapeShellArg (lib.defaultTo "" (config.services.displayManager.defaultSession or null))}
     export MOQS_SESSIONS=wayland=${sessions}/share/wayland-sessions:x11=${sessions}/share/xsessions
     ${lib.optionalString xserver ''
-      export MOQS_XSESSION_WRAPPER="${pkgs.xorg.xinit}/bin/startx /usr/bin/env"
+      export MOQS_XSESSION_WRAPPER="${(pkgs.xinit or pkgs.xorg.xinit)}/bin/startx /usr/bin/env"
     ''}
-    exec ${lib.getExe pkgs.cage} -s -d -- ${lib.getExe' cfg.greeter.package "quickshell"} -p ${greeterShell}/greeter.qml
+    # Between the login screen and the session the console shows through for a moment:
+    # clear it and hide the cursor, and send cage's and Quickshell's logs to the journal
+    # (journalctl -t moqs-greeter) instead of the console.
+    printf '\033[2J\033[3J\033[H\033[?25l'
+    exec ${lib.getExe' config.systemd.package "systemd-cat"} -t moqs-greeter -- ${lib.getExe pkgs.cage} -s -d -- ${lib.getExe' cfg.greeter.package "quickshell"} -p ${greeterShell}/greeter.qml
   '';
 
   otherDisplayManagers = lib.filter (x: x.on) [
