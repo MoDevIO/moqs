@@ -8,6 +8,8 @@ import Quickshell.Io
 // Settings come from matrix.json next to shell.qml (the gomuks web login, not the Matrix one):
 //   { "url": "http://localhost:29325", "username": "me", "password": "…" }
 // or, instead of "password", "passwordCommand": "pass show gomuks".
+// Rooms renamed in the panel keep their new names only here, in
+// $XDG_STATE_HOME/moqs/matrix-names.json ({ "!room:server": "Name" }).
 Singleton {
     id: root
 
@@ -40,7 +42,49 @@ Singleton {
         return Object.values(rooms).filter(r => r.meta).sort((a, b) => (b.meta.sorting_timestamp ?? 0) - (a.meta.sorting_timestamp ?? 0)).slice(0, 80);
     }
 
+    // Rooms renamed here: room_id -> name. Only local; the room keeps its name on the server.
+    property var localNames: ({})
+
+    readonly property string namesPath: `${Quickshell.env("XDG_STATE_HOME") || `${Quickshell.env("HOME")}/.local/state`}/moqs/matrix-names.json`
+
+    // Sets the name this room shows here; an empty one goes back to the room's own.
+    function rename(roomId: string, name: string): void {
+        const n = Object.assign({}, localNames);
+        if (name.trim())
+            n[roomId] = name.trim();
+        else
+            delete n[roomId];
+        localNames = n;
+        namesFile.setText(JSON.stringify(n, null, 2) + "\n");
+    }
+
+    // The room's name from the server, ignoring a local one.
+    function serverName(room: var): string {
+        return room?.meta?.name || room?.meta?.canonical_alias || room?.meta?.room_id || "";
+    }
+
+    // The network a bridged room comes from, "discord", "signal", "telegram" or "whatsapp",
+    // going by its members' IDs (@discord_…, @signalbot, …); "" for plain Matrix rooms.
+    function bridge(room: var): string {
+        const meta = room?.meta;
+        if (!meta)
+            return "";
+        const ids = [...(meta.lazy_load_summary?.["m.heroes"] ?? []), meta.dm_user_id ?? "", ...Object.keys(names[meta.room_id] ?? {})];
+        return bridgeOf(ids);
+    }
+
+    function bridgeOf(ids: var): string {
+        for (const id of ids) {
+            const m = String(id).match(/^@(discord|signal|telegram|whatsapp)(?:_|bot:)/);
+            if (m && id !== userId)
+                return m[1];
+        }
+        return "";
+    }
+
     function roomName(room: var): string {
+        if (localNames[room?.meta?.room_id ?? ""])
+            return localNames[room.meta.room_id];
         return room?.meta?.name || room?.meta?.canonical_alias || room?.meta?.room_id || "";
     }
 
@@ -146,7 +190,57 @@ Singleton {
         }
     }
 
-    function exec(command: string, params: var, done: var): void {
+    // Rooms we've been invited to: room_id -> { room_id, created_at, name, avatar, inviter,
+    // inviterName, direct, bridge, busy }, from the invite's (untrusted) room state.
+    property var invites: ({})
+    readonly property var inviteList: {
+        version;
+        return Object.values(invites).sort((a, b) => b.created_at - a.created_at);
+    }
+
+    function addInvite(inv: var): void {
+        const state = inv.invite_state ?? [];
+        const find = (type, key) => state.find(e => e.type === type && (key === undefined || e.state_key === key));
+        const mine = find("m.room.member", userId);
+        const inviter = mine?.sender ?? "";
+        const inviterEvt = find("m.room.member", inviter);
+        const inviterName = inviterEvt?.content?.displayname || inviter.replace(/^@/, "").split(":")[0];
+        invites[inv.room_id] = {
+            room_id: inv.room_id,
+            created_at: inv.created_at ?? 0,
+            name: find("m.room.name")?.content?.name || find("m.room.canonical_alias")?.content?.alias || (mine?.content?.is_direct ? inviterName : "") || inv.room_id,
+            avatar: find("m.room.avatar")?.content?.url || (mine?.content?.is_direct ? inviterEvt?.content?.avatar_url : "") || "",
+            inviter,
+            inviterName,
+            direct: !!mine?.content?.is_direct,
+            bridge: bridgeOf([inviter, ...state.filter(e => e.type === "m.room.member").map(e => e.state_key)]),
+            busy: false
+        };
+    }
+
+    // Accepts (joins) or declines an invite. It leaves the list once gomuks has it as a room,
+    // or as left.
+    function answerInvite(roomId: string, accept: bool): void {
+        const inv = invites[roomId];
+        if (!inv || inv.busy)
+            return;
+        inv.busy = true;
+        version++;
+        const done = () => {
+            delete invites[roomId];
+            version++;
+        };
+        const failed = () => {
+            inv.busy = false;
+            version++;
+        };
+        if (accept)
+            exec("join_room", { room_id_or_alias: roomId, from_invite: true }, done, failed);
+        else
+            exec("leave_room", { room_id: roomId, reason: "" }, done, failed);
+    }
+
+    function exec(command: string, params: var, done: var, failed: var): void {
         const xhr = new XMLHttpRequest();
         xhr.onreadystatechange = () => {
             if (xhr.readyState !== XMLHttpRequest.DONE)
@@ -155,10 +249,12 @@ Singleton {
             try {
                 res = JSON.parse(xhr.responseText);
             } catch (e) {}
-            if (xhr.status === 200)
+            if (xhr.status === 200) {
                 done?.(res);
-            else
+            } else {
                 error = res?.error ?? `${command} failed (${xhr.status})`;
+                failed?.();
+            }
         };
         xhr.open("POST", `${url}/_gomuks/exec/${command}`);
         xhr.setRequestHeader("Authorization", `Basic ${Qt.btoa(`${settings.username}:${password}`)}`);
@@ -406,7 +502,13 @@ Singleton {
         case "sync_complete":
             if (data.server_timestamp)
                 lastServerTs = data.server_timestamp;
+            if (data.clear_state)
+                invites = {};
+            for (const inv of data.invited_rooms ?? [])
+                addInvite(inv);
             for (const [id, sr] of Object.entries(data.rooms ?? {})) {
+                // Joined: no longer an invite.
+                delete invites[id];
                 const r = ensureRoom(id);
                 if (sr.meta)
                     r.meta = sr.meta;
@@ -419,8 +521,10 @@ Singleton {
                     for (const n of sr.notifications ?? [])
                         notifyMessage(id, events[n.event_rowid]);
             }
-            for (const id of data.left_rooms ?? [])
+            for (const id of data.left_rooms ?? []) {
                 delete rooms[id];
+                delete invites[id];
+            }
             if (status !== "ready")
                 status = "syncing";
             version++;
@@ -450,6 +554,24 @@ Singleton {
     }
 
     onConfiguredChanged: if (configured) stream.running = true
+    Component.onCompleted: Quickshell.execDetached(["mkdir", "-p", namesPath.replace(/\/[^\/]*$/, "")])
+
+    FileView {
+        id: namesFile
+
+        path: root.namesPath
+        watchChanges: true
+        printErrors: false
+        onFileChanged: reload()
+        onLoaded: {
+            try {
+                const n = JSON.parse(text());
+                root.localNames = n && typeof n === "object" ? n : {};
+            } catch (e) {
+                root.localNames = {};
+            }
+        }
+    }
 
     FileView {
         path: Quickshell.shellPath("matrix.json")

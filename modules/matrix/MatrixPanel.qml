@@ -26,6 +26,8 @@ Item {
 
     // Room list search: filters rooms by name and searches messages.
     property string query
+    // The room whose name is being edited (right click), or "".
+    property string renaming
 
     readonly property real targetWidth: open ? Config.matrix.width : 0
     readonly property real targetHeight: open ? Config.matrix.height : 0
@@ -93,6 +95,7 @@ Item {
         clearSearch();
         pickerFor = "";
         roomId = "";
+        renaming = "";
     }
 
     function openRoom(id: string): void {
@@ -113,6 +116,7 @@ Item {
         if (!open) {
             replying = false;
             holdOpen = false;
+            renaming = "";
         }
     }
 
@@ -337,6 +341,82 @@ Item {
                 }
             }
 
+            // Invites, above the rooms, each with Accept and Deny.
+            Column {
+                Layout.fillWidth: true
+                Layout.leftMargin: Config.controlCentre.padding
+                Layout.rightMargin: Config.controlCentre.padding
+                visible: Matrix.configured && !root.roomId && !root.query && invites.count > 0
+                spacing: 2
+
+                Repeater {
+                    id: invites
+
+                    model: Matrix.inviteList
+
+                    Rectangle {
+                        id: invite
+
+                        required property var modelData
+
+                        width: parent.width
+                        implicitHeight: 48
+                        radius: 14
+                        color: Config.colours.card
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 8
+                            anchors.rightMargin: 8
+                            spacing: 10
+
+                            RoomAvatar {
+                                name: invite.modelData.name
+                                source: Matrix.mediaUrl(invite.modelData.avatar, false)
+                                bridge: invite.modelData.bridge
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 0
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: invite.modelData.name
+                                    elide: Text.ElideRight
+                                    color: Config.colours.text
+                                    font.family: Config.font.family
+                                    font.pointSize: Config.font.small
+                                    font.bold: true
+                                }
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: invite.modelData.direct ? "Wants to chat" : `Invited by ${invite.modelData.inviterName}`
+                                    elide: Text.ElideRight
+                                    color: Config.colours.subtext
+                                    font.family: Config.font.family
+                                    font.pointSize: Config.font.small
+                                }
+                            }
+
+                            InviteButton {
+                                text: "Accept"
+                                primary: true
+                                enabled: !invite.modelData.busy
+                                onClicked: Matrix.answerInvite(invite.modelData.room_id, true)
+                            }
+
+                            InviteButton {
+                                text: "Deny"
+                                enabled: !invite.modelData.busy
+                                onClicked: Matrix.answerInvite(invite.modelData.room_id, false)
+                            }
+                        }
+                    }
+                }
+            }
+
             // Rooms
             ListView {
                 id: rooms
@@ -501,13 +581,27 @@ Item {
                     radius: 14
                     color: roomArea.containsMouse ? Config.colours.buttonHover : "transparent"
 
+                    readonly property bool renaming: root.renaming === meta.room_id
+
+                    // Right click renames the room, here only.
                     MouseArea {
                         id: roomArea
 
                         anchors.fill: parent
                         hoverEnabled: true
+                        acceptedButtons: Qt.LeftButton | Qt.RightButton
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: root.openRoom(roomRow.meta.room_id)
+                        onClicked: mouse => {
+                            if (mouse.button === Qt.RightButton) {
+                                root.renaming = roomRow.meta.room_id;
+                                nameInput.text = Matrix.roomName(roomRow.modelData);
+                                nameInput.selectAll();
+                                nameInput.forceActiveFocus();
+                            } else if (!roomRow.renaming) {
+                                root.renaming = "";
+                                root.openRoom(roomRow.meta.room_id);
+                            }
+                        }
                     }
 
                     RowLayout {
@@ -516,11 +610,13 @@ Item {
                         anchors.rightMargin: 12
                         spacing: 10
 
-                        Avatar {
-                            Layout.preferredWidth: 32
-                            Layout.preferredHeight: 32
+                        RoomAvatar {
                             name: Matrix.roomName(roomRow.modelData)
                             source: Matrix.mediaUrl(roomRow.meta.avatar ?? "", false)
+                            bridge: {
+                                Matrix.version;
+                                return Matrix.bridge(roomRow.modelData);
+                            }
                         }
 
                         ColumnLayout {
@@ -529,6 +625,7 @@ Item {
 
                             Text {
                                 Layout.fillWidth: true
+                                visible: !roomRow.renaming
                                 text: Matrix.roomName(roomRow.modelData)
                                 elide: Text.ElideRight
                                 color: Config.colours.text
@@ -537,10 +634,34 @@ Item {
                                 font.bold: roomRow.unread > 0
                             }
 
+                            // Enter saves, Escape or clicking elsewhere cancels; empty goes back
+                            // to the room's own name.
+                            TextInput {
+                                id: nameInput
+
+                                Layout.fillWidth: true
+                                visible: roomRow.renaming
+                                color: Config.colours.text
+                                selectionColor: Config.colours.subtext
+                                font.family: Config.font.family
+                                font.pointSize: Config.font.small
+                                font.bold: true
+                                clip: true
+
+                                onAccepted: {
+                                    Matrix.rename(roomRow.meta.room_id, text);
+                                    root.renaming = "";
+                                }
+                                Keys.onEscapePressed: root.renaming = ""
+                                onActiveFocusChanged: if (!activeFocus && roomRow.renaming) root.renaming = ""
+                            }
+
                             Text {
                                 Layout.fillWidth: true
                                 visible: text !== ""
                                 text: {
+                                    if (roomRow.renaming)
+                                        return nameInput.text.trim() ? "Enter to save · Esc to cancel" : `Enter to go back to "${Matrix.serverName(roomRow.modelData)}"`;
                                     const p = roomRow.preview;
                                     const t = Matrix.text(p);
                                     return t ? `${Matrix.senderName(roomRow.meta.room_id, p.sender)}: ${t.split("\n")[0]}` : "";
@@ -928,6 +1049,79 @@ Item {
                     }
                 }
             }
+        }
+    }
+
+    // A room's avatar, with a badge for the network a bridged room comes from.
+    component RoomAvatar: Item {
+        id: roomAvatar
+
+        property alias name: avatar.name
+        property alias source: avatar.source
+        property string bridge
+
+        Layout.preferredWidth: 32
+        Layout.preferredHeight: 32
+
+        Avatar {
+            id: avatar
+
+            anchors.fill: parent
+        }
+
+        Rectangle {
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.rightMargin: -3
+            anchors.bottomMargin: -3
+            width: 16
+            height: 16
+            radius: 8
+            visible: roomAvatar.bridge !== ""
+            color: Config.border.colour
+
+            Image {
+                anchors.centerIn: parent
+                width: 10
+                height: 10
+                source: roomAvatar.bridge ? Quickshell.shellPath(`assets/bridges/${roomAvatar.bridge}.svg`) : ""
+                sourceSize: Qt.size(20, 20)
+                smooth: true
+            }
+        }
+    }
+
+    component InviteButton: Rectangle {
+        id: button
+
+        property alias text: label.text
+        property bool primary
+        signal clicked
+
+        implicitWidth: label.implicitWidth + 20
+        implicitHeight: 26
+        radius: height / 2
+        opacity: enabled ? 1 : 0.5
+        color: primary ? (area.containsMouse ? Config.colours.subtext : Config.colours.active) : (area.containsMouse ? Config.colours.buttonHover : Config.colours.button)
+
+        Text {
+            id: label
+
+            anchors.centerIn: parent
+            color: button.primary ? Config.colours.activeText : Config.colours.text
+            font.family: Config.font.family
+            font.pointSize: Config.font.small
+            font.bold: button.primary
+        }
+
+        MouseArea {
+            id: area
+
+            anchors.fill: parent
+            hoverEnabled: true
+            enabled: button.enabled
+            cursorShape: Qt.PointingHandCursor
+            onClicked: button.clicked()
         }
     }
 
