@@ -46,6 +46,16 @@ Singleton {
         readonly property int spacing: 8
     }
 
+    readonly property QtObject launcher: QtObject {
+        readonly property int width: 560
+        // Width it starts growing from, so it swells out of the bar rather than a point.
+        readonly property int seed: 200
+        readonly property int padding: 12
+        // Height of one app row, and how many rows show before the list scrolls.
+        readonly property int row: 44
+        readonly property int shown: 8
+    }
+
     // The level shown in place of the clock while volume or brightness changes.
     readonly property QtObject osd: QtObject {
         // Width of the level bar.

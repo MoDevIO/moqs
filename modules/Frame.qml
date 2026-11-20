@@ -5,6 +5,7 @@ import qs.config
 import qs.modules.bar
 import qs.modules.controlcentre
 import qs.modules.dashboard
+import qs.modules.launcher
 import qs.modules.matrix
 import qs.modules.music
 import qs.modules.notifications
@@ -33,8 +34,8 @@ Scope {
         WlrLayershell.layer: WlrLayer.Top
         WlrLayershell.exclusionMode: ExclusionMode.Ignore
         // Lets text fields (Wi-Fi password, music search, messages, homework) take typing while their panel is open.
-        // A Matrix reply takes the keyboard outright, so the message field gets it without a click.
-        WlrLayershell.keyboardFocus: matrix.replying ? WlrKeyboardFocus.Exclusive : cc.open || music.open || matrix.open || dash.open ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
+        // A Matrix reply and the launcher take the keyboard outright, so their fields get it without a click.
+        WlrLayershell.keyboardFocus: matrix.replying || launcher.open ? WlrKeyboardFocus.Exclusive : cc.open || music.open || matrix.open || dash.open ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
 
         anchors {
             top: true
@@ -45,8 +46,9 @@ Scope {
 
         // Only the border and panels take input; the interior passes clicks through. While a
         // panel is pulled out the whole screen does, so a quick pull can't leave the pointer
-        // outside the frame, where the drag would stop getting its moves.
-        mask: dragging ? dragMask : frameMask
+        // outside the frame, where the drag would stop getting its moves. The launcher takes
+        // the whole screen too, so a click anywhere else closes it.
+        mask: dragging || launcher.open ? dragMask : frameMask
 
         readonly property bool dragging: dash.dragging || notifs.dragging || music.dragging || matrix.dragging
 
@@ -74,6 +76,11 @@ Scope {
 
             Region {
                 item: send
+                intersection: Intersection.Subtract
+            }
+
+            Region {
+                item: launcher
                 intersection: Intersection.Subtract
             }
 
@@ -173,6 +180,13 @@ Scope {
             }
         }
 
+        // While the launcher is open, a click anywhere outside it closes it.
+        MouseArea {
+            anchors.fill: parent
+            visible: launcher.open
+            onPressed: Launcher.open = false
+        }
+
         // Dragging the bottom border up pulls out the dashboard. The gap above it and the
         // peeking sliver count too, so the grab doesn't need a precise aim. The corners stay
         // free for the music player and Matrix.
@@ -246,6 +260,7 @@ Scope {
             screen: root.modelData
             onClockClicked: {
                 Owly.closeSend();
+                Launcher.open = false;
                 cc.open = !cc.open;
             }
         }
@@ -274,6 +289,21 @@ Scope {
             anchors.top: parent.top
             anchors.topMargin: root.top
             anchors.horizontalCenter: parent.horizontalCenter
+        }
+
+        AppLauncher {
+            id: launcher
+
+            open: Launcher.on(root.modelData)
+            anchors.top: parent.top
+            anchors.topMargin: root.top
+            anchors.horizontalCenter: parent.horizontalCenter
+            onClosed: Launcher.open = false
+            // The control centre and send panel share its spot.
+            onOpenChanged: if (open) {
+                cc.open = false;
+                Owly.closeSend();
+            }
         }
 
         MusicPanel {
