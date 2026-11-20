@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Io
 import qs.config
 import qs.modules
+import qs.modules.lock
 
 ShellRoot {
     Variants {
@@ -11,6 +12,8 @@ ShellRoot {
 
         Frame {}
     }
+
+    LockScreen {}
 
     // Let windows sit flush against the frame.
     Process {

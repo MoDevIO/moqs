@@ -5,6 +5,7 @@ let
     root = ../.;
     fileset = lib.fileset.unions [
       ../shell.qml
+      ../greeter.qml
       ../assets
       ../config
       ../modules

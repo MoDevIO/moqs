@@ -78,6 +78,16 @@ in
     description = "Web search for the launcher's `?` mode; `%s` stands for the query.";
   };
 
+  lock.pamService = mkOption {
+    type = types.str;
+    default = "login";
+    example = "swaylock";
+    description = ''
+      PAM service (a file in /etc/pam.d) the lock screen checks the password with. On NixOS,
+      `security.pam.services.<name> = { };` makes a dedicated one.
+    '';
+  };
+
   airdrop.name = mkOption {
     type = types.nullOr types.str;
     default = null;

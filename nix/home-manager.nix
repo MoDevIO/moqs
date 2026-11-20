@@ -33,6 +33,7 @@ let
         builtins.toJSON {
           inherit (cfg) dragToOpen;
           launcher.search = cfg.launcher.searchEngine;
+          lock.pam = cfg.lock.pamService;
         }
       )
     } $out/settings.json

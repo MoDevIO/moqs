@@ -17,6 +17,11 @@ A minimal [Quickshell](https://quickshell.org) shell for Hyprland. Black frame a
   The same works with `brightness`. `release` hides the level right away; `up` and `down` without a `press` show it briefly.
 - CPU and RAM bars plus a battery icon on the right.
 
+**Lock screen**
+- `qs ipc call session lock` locks the session: the time, a password field, the weather, the next lesson, homework due soon or the next exam, and what's playing (with its controls). Only your password unlocks it; there's no IPC unlock.
+- Bind it to a key, or let hypridle use it: `general { lock_cmd = qs ipc call session lock }`.
+- The password is checked through PAM with the `login` service; `lock.pamService` (or `"lock": { "pam": "swaylock" }` in `settings.json`) picks another.
+
 **Corners and panels**
 
 | Where | What | How to open |
@@ -170,6 +175,9 @@ Passwords never go into the Nix store. Give exactly one of `passwordFile` (read 
 | `user` | (none) | NixOS module only: whose Home Manager gets the shell |
 | `dragToOpen.notifications` / `music` / `matrix` | `false` | Pull that corner's panel out of the border instead of opening it on hover |
 | `launcher.searchEngine` | `"https://duckduckgo.com/?q=%s"` | Web search for the launcher's `?`; `%s` is the query |
+| `lock.pamService` | `"login"` | PAM service the lock screen checks passwords with |
+| `greeter.enable` | `false` | NixOS module only: the login screen through greetd (see [Login screen](#login-screen)) |
+| `greeter.package` | `pkgs.quickshell` | NixOS module only: the Quickshell it runs |
 | `airdrop.name` | `null` | Name others see for AirDrop; `null` means the host name |
 | `navidrome.enable` | `false` | Configure the music panel |
 | `navidrome.url` | (none) | Navidrome server URL |
@@ -194,6 +202,22 @@ Passwords never go into the Nix store. Give exactly one of `passwordFile` (read 
 | `hass.url` | (none) | Home Assistant URL |
 | `hass.tokenFile` / `tokenCommand` | `null` | Long-lived access token (profile page → Security) |
 | `hass.sections` | `[]` | What the card shows; see [Home Assistant card](#home-assistant-card) |
+
+### Login screen
+
+The NixOS module can also replace SDDM, GDM or LightDM with a login screen in the lock screen's style: the time, who logs in (arrows switch users), the password field, and the session to start underneath. It lists every session NixOS has installed, so Hyprland, GNOME (`services.desktopManager.gnome.enable`), Steam (`programs.steam.gamescopeSession.enable`), Plasma and the rest all show up; X11 sessions start through `startx` when `services.xserver.enable` is on. Suspend, restart and power off sit in the corner, and the weather shows when `services.moqs.weather` is set up. The last user and session are remembered.
+
+```nix
+{
+  imports = [ inputs.moqs.nixosModules.default ];
+
+  services.moqs.greeter.enable = true;
+  # The login screen replaces the display manager:
+  services.displayManager.sddm.enable = false;
+}
+```
+
+It doesn't need the Home Manager part. Under the hood it's greetd running Quickshell (`greeter.qml`) in [cage](https://github.com/cage-kiosk/cage). If the login screen fails to start, switch to another TTY (Ctrl+Alt+F2) to log in and fix it.
 
 ## Requirements the module doesn't cover
 
