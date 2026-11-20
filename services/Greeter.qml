@@ -10,7 +10,8 @@ import Quickshell.Services.Greetd
 // $MOQS_SESSIONS, as "wayland=<dir>:x11=<dir>:…" (the NixOS module passes NixOS's session
 // list); X11 sessions start through $MOQS_XSESSION_WRAPPER (e.g. "startx /usr/bin/env") and
 // are left out without one. The last user and session are remembered in
-// $XDG_STATE_HOME/moqs/greeter.json.
+// $XDG_STATE_HOME/moqs/greeter.json; before there is one, $MOQS_DEFAULT_SESSION (the name of
+// a .desktop file, e.g. "hyprland") is the session.
 Singleton {
     id: root
 
@@ -19,7 +20,7 @@ Singleton {
     // [{ key, name, type, exec, desktops }], sorted by name.
     property var sessions: []
     property string user
-    property string session
+    property string session: Quickshell.env("MOQS_DEFAULT_SESSION") ?? ""
 
     readonly property var currentSession: sessions.find(s => s.key === session) ?? sessions[0] ?? null
     readonly property string xWrapper: Quickshell.env("MOQS_XSESSION_WRAPPER") ?? ""

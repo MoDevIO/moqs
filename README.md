@@ -207,7 +207,7 @@ Other settings you'd rather keep out of the store too can come from files read a
 
 ### Login screen
 
-The NixOS module can also replace SDDM, GDM or LightDM with a login screen in the lock screen's style: the time, who logs in (arrows switch users), the password field, and the session to start underneath. It lists every session NixOS has installed, so Hyprland, GNOME (`services.desktopManager.gnome.enable`), Steam (`programs.steam.gamescopeSession.enable`), Plasma and the rest all show up; X11 sessions start through `startx` when `services.xserver.enable` is on. Suspend, restart and power off sit in the corner, and the weather shows when `services.moqs.weather` is set up. The last user and session are remembered.
+The NixOS module can also replace SDDM, GDM or LightDM with a login screen in the lock screen's style: the time, who logs in (arrows switch users), the password field, and the session to start underneath. It lists every session NixOS has installed, so Hyprland, GNOME (`services.desktopManager.gnome.enable`), Steam (`programs.steam.gamescopeSession.enable`), Plasma and the rest all show up; X11 sessions start through `startx` when `services.xserver.enable` is on. Suspend, restart and power off sit in the corner, and the weather shows when `services.moqs.weather` is set up (with a `location`; a `locationFile` that only you can read stays hidden from the login screen). The last user and session are remembered; until then it starts on `services.displayManager.defaultSession`, e.g. `"hyprland"`. It types with your `services.xserver.xkb` keyboard layout.
 
 ```nix
 {

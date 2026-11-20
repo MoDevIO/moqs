@@ -38,8 +38,18 @@ let
   '';
 
   # Quickshell in cage, a kiosk compositor that shows one window and nothing else.
+  xkb = config.services.xserver.xkb;
+
   greeter = pkgs.writeShellScript "moqs-greeter" ''
     export XDG_STATE_HOME=/var/lib/moqs-greeter
+    # The greeter user has no home to keep a cache in.
+    export XDG_CACHE_HOME=/var/lib/moqs-greeter/cache
+    # The system's keyboard layout, so passwords type as they do everywhere else.
+    export XKB_DEFAULT_LAYOUT=${lib.escapeShellArg xkb.layout}
+    export XKB_DEFAULT_VARIANT=${lib.escapeShellArg xkb.variant}
+    export XKB_DEFAULT_OPTIONS=${lib.escapeShellArg xkb.options}
+    # The session picked until someone picks another.
+    export MOQS_DEFAULT_SESSION=${lib.escapeShellArg (lib.defaultTo "" (config.services.displayManager.defaultSession or null))}
     export MOQS_SESSIONS=wayland=${sessions}/share/wayland-sessions:x11=${sessions}/share/xsessions
     ${lib.optionalString xserver ''
       export MOQS_XSESSION_WRAPPER="${pkgs.xorg.xinit}/bin/startx /usr/bin/env"
@@ -125,7 +135,10 @@ in
       services.xserver.displayManager.startx.enable = lib.mkIf xserver (lib.mkDefault true);
 
       # Where the greeter remembers the last user and session.
-      systemd.tmpfiles.rules = [ "d /var/lib/moqs-greeter 0755 greeter greeter - -" ];
+      systemd.tmpfiles.rules = [
+        "d /var/lib/moqs-greeter 0755 greeter greeter - -"
+        "d /var/lib/moqs-greeter/cache 0755 greeter greeter - -"
+      ];
 
       fonts.packages = [
         pkgs.nerd-fonts.jetbrains-mono
