@@ -101,6 +101,12 @@ Singleton {
         return `${state}/moqs/homework.txt`;
     }
 
+    // Open homework due in a lesson: due that day, for the lesson's subject.
+    function homeworkFor(lesson: var): var {
+        const subjects = lesson.subject.toLowerCase().split(", ");
+        return homework.filter(h => !h.done && h.due === lesson.date && subjects.includes(h.subject.toLowerCase()));
+    }
+
     function longName(short: string): string {
         return subjectNames[short] || short;
     }
