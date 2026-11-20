@@ -4,6 +4,7 @@ import Quickshell.Wayland
 import qs.config
 import qs.modules.bar
 import qs.modules.controlcentre
+import qs.modules.controlcentre as CC
 import qs.modules.dashboard
 import qs.modules.launcher
 import qs.modules.matrix
@@ -19,6 +20,17 @@ Scope {
 
     readonly property int top: Config.bar.height
     readonly property int side: Config.border.thickness
+
+    // 0 open, 1 covered: locking, a pane grows out of the bar over the whole screen, like the
+    // launcher, and the lock screen takes over from it; unlocking, it shrinks back.
+    property real closed: Lock.closing || Lock.locked ? 1 : 0
+
+    Behavior on closed {
+        NumberAnimation {
+            duration: Lock.closeDuration
+            easing.type: Easing.OutCubic
+        }
+    }
 
     Exclusion { anchors.top: true; exclusiveZone: root.top }
     Exclusion { anchors.bottom: true; exclusiveZone: root.side }
@@ -250,87 +262,104 @@ Scope {
             antialiasing: true
         }
 
-        Bar {
+        // The lock pane, below the bar so the bar fades out over it rather than being covered.
+        CC.Background {
             anchors.top: parent.top
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.leftMargin: root.side
-            anchors.rightMargin: root.side
-            height: root.top
-            screen: root.modelData
-            onClockClicked: {
-                Owly.closeSend();
-                Launcher.open = false;
-                cc.open = !cc.open;
+            anchors.topMargin: root.top
+            anchors.horizontalCenter: parent.horizontalCenter
+            width: (win.width - root.side * 2) * root.closed
+            height: (win.height - root.top - root.side) * root.closed
+            visible: root.closed > 0
+        }
+
+        // The bar and panels fade out as the lock pane comes down.
+        Item {
+            anchors.fill: parent
+            opacity: 1 - root.closed
+            visible: opacity > 0
+
+            Bar {
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.leftMargin: root.side
+                anchors.rightMargin: root.side
+                height: root.top
+                screen: root.modelData
+                onClockClicked: {
+                    Owly.closeSend();
+                    Launcher.open = false;
+                    cc.open = !cc.open;
+                }
             }
-        }
 
-        Panel {
-            id: notifs
+            Panel {
+                id: notifs
 
-            anchors.top: parent.top
-            anchors.right: parent.right
-            anchors.topMargin: root.top
-            anchors.rightMargin: root.side
-            screen: root.modelData
-        }
-
-        ControlCentre {
-            id: cc
-
-            anchors.top: parent.top
-            anchors.topMargin: root.top
-            anchors.horizontalCenter: parent.horizontalCenter
-        }
-
-        SendPanel {
-            id: send
-
-            anchors.top: parent.top
-            anchors.topMargin: root.top
-            anchors.horizontalCenter: parent.horizontalCenter
-        }
-
-        AppLauncher {
-            id: launcher
-
-            open: Launcher.on(root.modelData)
-            anchors.top: parent.top
-            anchors.topMargin: root.top
-            anchors.horizontalCenter: parent.horizontalCenter
-            onClosed: Launcher.open = false
-            // The control centre and send panel share its spot.
-            onOpenChanged: if (open) {
-                cc.open = false;
-                Owly.closeSend();
+                anchors.top: parent.top
+                anchors.right: parent.right
+                anchors.topMargin: root.top
+                anchors.rightMargin: root.side
+                screen: root.modelData
             }
-        }
 
-        MusicPanel {
-            id: music
+            ControlCentre {
+                id: cc
 
-            anchors.left: parent.left
-            anchors.bottom: parent.bottom
-            anchors.leftMargin: root.side
-            anchors.bottomMargin: root.side
-        }
+                anchors.top: parent.top
+                anchors.topMargin: root.top
+                anchors.horizontalCenter: parent.horizontalCenter
+            }
 
-        MatrixPanel {
-            id: matrix
+            SendPanel {
+                id: send
 
-            screen: root.modelData
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-            anchors.rightMargin: root.side
-            anchors.bottomMargin: root.side
-        }
+                anchors.top: parent.top
+                anchors.topMargin: root.top
+                anchors.horizontalCenter: parent.horizontalCenter
+            }
 
-        Dashboard {
-            id: dash
+            AppLauncher {
+                id: launcher
 
-            anchors.horizontalCenter: parent.horizontalCenter
-            anchors.bottom: parent.bottom
-            anchors.bottomMargin: root.side
+                open: Launcher.on(root.modelData)
+                anchors.top: parent.top
+                anchors.topMargin: root.top
+                anchors.horizontalCenter: parent.horizontalCenter
+                onClosed: Launcher.open = false
+                // The control centre and send panel share its spot.
+                onOpenChanged: if (open) {
+                    cc.open = false;
+                    Owly.closeSend();
+                }
+            }
+
+            MusicPanel {
+                id: music
+
+                anchors.left: parent.left
+                anchors.bottom: parent.bottom
+                anchors.leftMargin: root.side
+                anchors.bottomMargin: root.side
+            }
+
+            MatrixPanel {
+                id: matrix
+
+                screen: root.modelData
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.rightMargin: root.side
+                anchors.bottomMargin: root.side
+            }
+
+            Dashboard {
+                id: dash
+
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: root.side
+            }
         }
     }
 
