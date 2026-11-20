@@ -5,8 +5,38 @@ import Quickshell
 import Quickshell.Io
 
 // AirDrop through the owly CLI. The radio itself (awdl0) is held up by owlyd/owly-radio.service.
+// airdrop.json next to shell.qml can set the name others see (default: the host name):
+//   { "name": "Mo's Laptop" }
 Singleton {
     id: root
+
+    readonly property string name: airdrop.name.trim()
+
+    // Passed to owly send and receive.
+    function nameArgs(): var {
+        return name ? ["--name", name] : [];
+    }
+
+    // A receiver already running keeps announcing the old name, so it's restarted.
+    onNameChanged: {
+        if (receiving) {
+            receiver.running = false;
+            startReceiver();
+        }
+    }
+
+    FileView {
+        path: Quickshell.shellPath("airdrop.json")
+        watchChanges: true
+        printErrors: false
+        onFileChanged: reload()
+
+        JsonAdapter {
+            id: airdrop
+
+            property string name
+        }
+    }
 
     property bool radioUp: false
     // What the user chose; the receiver is kept running while this is on, whatever the
@@ -35,7 +65,7 @@ Singleton {
     function send(files: var, urls: var): void {
         if (!target || sender.running || (files.length === 0 && urls.length === 0))
             return;
-        const cmd = ["owly", "send", "--to", target.name];
+        const cmd = ["owly", "send", ...nameArgs(), "--to", target.name];
         if (files.length > 0)
             cmd.push("--", ...files);
         else
@@ -123,7 +153,7 @@ Singleton {
 
         property var request: null
 
-        command: ["owly", "receive", "--dir", `${Quickshell.env("HOME")}/Downloads`]
+        command: ["owly", "receive", ...root.nameArgs(), "--dir", `${Quickshell.env("HOME")}/Downloads`]
         stdinEnabled: true
 
         // Received file paths and links.

@@ -31,6 +31,9 @@ let
     cp ${
       pkgs.writeText "settings.json" (builtins.toJSON { inherit (cfg) dragToOpen; })
     } $out/settings.json
+    ${lib.optionalString (cfg.airdrop.name != null) ''
+      cp ${pkgs.writeText "airdrop.json" (builtins.toJSON { inherit (cfg.airdrop) name; })} $out/airdrop.json
+    ''}
     ${lib.optionalString cfg.navidrome.enable ''
       cp ${pkgs.writeText "navidrome.json" (settings cfg.navidrome { })} $out/navidrome.json
       ln -s ${pkgs.mpvScripts.mpris} $out/mpv-mpris

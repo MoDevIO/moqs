@@ -33,6 +33,7 @@ A minimal [Quickshell](https://quickshell.org) shell for Hyprland. Black frame a
   - Receive on/off.
   - Accept/decline prompts for incoming transfers.
   - A nearby-devices list. Clicking a device opens a drop zone; files dropped there get sent to it.
+  - The name others see is the host name, unless `airdrop.name` (Nix option, or `airdrop.json`) sets another.
 - **Wi-Fi:** connect and disconnect from the list, with a password field for new secured networks.
 - **Bluetooth:** connect, disconnect and pair.
 - **Clipboard history** (via [cliphist](https://github.com/sentriz/cliphist)): the shell records what you copy while it runs, text and images. The Clipboard tile lists it newest first with image thumbnails. Type to search, click or press Enter to copy an entry back, ↑/↓ to move, × to remove one, the bin to clear everything. Copies that password managers mark as sensitive aren't kept.
@@ -145,7 +146,7 @@ Don't put `homeManagerModules.default` in a NixOS module list. It stops with an 
 ### What the module does
 
 - Turns on `programs.quickshell`, started from `hyprland-session.target`. Change the target with `services.moqs.systemdTarget`.
-- Installs the shell to `~/.config/quickshell`, together with `settings.json`, `navidrome.json`, `matrix.json`, `webuntis.json`, `weather.json` and `hass.json` generated from your settings.
+- Installs the shell to `~/.config/quickshell`, together with `settings.json`, `airdrop.json`, `navidrome.json`, `matrix.json`, `webuntis.json`, `weather.json` and `hass.json` generated from your settings.
 - Installs the programs the shell runs:
   - always: `brightnessctl`, `cliphist`, `curl`, `libnotify` and `wl-clipboard`
   - with Navidrome enabled: `mpv`, plus [mpv-mpris](https://github.com/hoyon/mpv-mpris) loaded into the shell's own mpv
@@ -161,6 +162,7 @@ Passwords never go into the Nix store. Give exactly one of `passwordFile` (read 
 | `systemdTarget` | `"hyprland-session.target"` | Target that starts it |
 | `user` | (none) | NixOS module only: whose Home Manager gets the shell |
 | `dragToOpen.notifications` / `music` / `matrix` | `false` | Pull that corner's panel out of the border instead of opening it on hover |
+| `airdrop.name` | `null` | Name others see for AirDrop; `null` means the host name |
 | `navidrome.enable` | `false` | Configure the music panel |
 | `navidrome.url` | (none) | Navidrome server URL |
 | `navidrome.username` | (none) | Navidrome username |
@@ -238,6 +240,9 @@ qs -p ./shell.qml
 Without the Nix module, put the panel settings next to `shell.qml`. These files are gitignored:
 
 ```jsonc
+// airdrop.json: the name others see (default: the host name)
+{ "name": "Mo's Laptop" }
+
 // navidrome.json
 { "url": "https://music.example.com", "username": "me", "password": "…" }
 

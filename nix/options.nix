@@ -71,6 +71,13 @@ in
         }
       );
 
+  airdrop.name = mkOption {
+    type = types.nullOr types.str;
+    default = null;
+    example = "Mo's Laptop";
+    description = "The name other devices see for AirDrop. `null` uses the host name.";
+  };
+
   navidrome = login {
     name = "Navidrome";
     url = "";
