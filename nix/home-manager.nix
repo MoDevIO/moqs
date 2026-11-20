@@ -10,12 +10,18 @@ self:
 let
   cfg = config.services.moqs;
 
+  # A setting, or the file it's read from at runtime instead ("urlFile" for "url").
+  fromFile =
+    name: value: file:
+    if file != null then { "${name}File" = file; } else { ${name} = value; };
+
   # The panels read these JSON files next to shell.qml.
   settings =
     login: extra:
     builtins.toJSON (
-      {
-        inherit (login) url username;
+      fromFile "url" login.url login.urlFile
+      // fromFile "username" login.username login.usernameFile
+      // {
         passwordCommand =
           if login.passwordCommand != null then
             login.passwordCommand
@@ -52,8 +58,9 @@ let
         pkgs.writeText "webuntis.json" (
           settings cfg.webuntis (
             {
-              inherit (cfg.webuntis) school cancelledRooms subjects;
+              inherit (cfg.webuntis) cancelledRooms subjects;
             }
+            // fromFile "school" cfg.webuntis.school cfg.webuntis.schoolFile
             // lib.optionalAttrs (cfg.webuntis.homeworkFile != null) { inherit (cfg.webuntis) homeworkFile; }
           )
         )
@@ -75,17 +82,29 @@ let
     ''}
     ${lib.optionalString cfg.weather.enable ''
       cp ${
-        pkgs.writeText "weather.json" (builtins.toJSON { inherit (cfg.weather) location; })
+        pkgs.writeText "weather.json" (
+          builtins.toJSON (fromFile "location" cfg.weather.location cfg.weather.locationFile)
+        )
       } $out/weather.json
     ''}
   '';
 
+  # Exactly one of a setting and its file: "username" or "usernameFile".
+  oneOf =
+    path: name: value: file: {
+      assertion = (value != "") != (file != null);
+      message = "services.moqs.${path}: set exactly one of ${name} or ${name}File.";
+    };
+
   loginAssertions =
     name: login:
-    lib.optional login.enable {
-      assertion = (login.passwordFile == null) != (login.passwordCommand == null);
-      message = "services.moqs.${name}: set exactly one of passwordFile or passwordCommand.";
-    };
+    lib.optionals login.enable [
+      {
+        assertion = (login.passwordFile == null) != (login.passwordCommand == null);
+        message = "services.moqs.${name}: set exactly one of passwordFile or passwordCommand.";
+      }
+      (oneOf name "username" login.username login.usernameFile)
+    ];
 in
 {
   options.services.moqs = import ./options.nix { inherit lib; } // {
@@ -114,10 +133,7 @@ in
           ++ loginAssertions "navidrome" cfg.navidrome
           ++ loginAssertions "matrix" cfg.matrix
           ++ loginAssertions "webuntis" cfg.webuntis
-          ++ lib.optional cfg.navidrome.enable {
-            assertion = cfg.navidrome.url != "";
-            message = "services.moqs.navidrome.url must be set.";
-          }
+          ++ lib.optional cfg.navidrome.enable (oneOf "navidrome" "url" cfg.navidrome.url cfg.navidrome.urlFile)
           ++ [
             {
               assertion = lib.hasInfix "%s" cfg.launcher.searchEngine;
@@ -128,10 +144,11 @@ in
             assertion = (cfg.hass.tokenFile == null) != (cfg.hass.tokenCommand == null);
             message = "services.moqs.hass: set exactly one of tokenFile or tokenCommand.";
           }
-          ++ lib.optional cfg.webuntis.enable {
-            assertion = cfg.webuntis.url != "";
-            message = "services.moqs.webuntis.url must be set.";
-          };
+          ++ lib.optionals cfg.webuntis.enable [
+            (oneOf "webuntis" "url" cfg.webuntis.url cfg.webuntis.urlFile)
+            (oneOf "webuntis" "school" cfg.webuntis.school cfg.webuntis.schoolFile)
+          ]
+          ++ lib.optional cfg.weather.enable (oneOf "weather" "location" cfg.weather.location cfg.weather.locationFile);
 
         programs.quickshell = {
           enable = true;

@@ -20,12 +20,18 @@ Singleton {
     id: root
 
     readonly property string url: {
-        const u = settings.url.replace(/\/+$/, "").replace(/\/WebUntis.*$/, "");
+        const u = (settings.url || urlSecret.value).replace(/\/+$/, "").replace(/\/WebUntis.*$/, "");
         return !u || u.includes("://") ? u : `https://${u}`;
     }
     readonly property string password: settings.password || commandPassword
-    readonly property bool configured: url !== "" && settings.school !== "" && settings.username !== "" && password !== ""
+    readonly property string school: settings.school || schoolSecret.value
+    readonly property string username: settings.username || usernameSecret.value
+    readonly property bool configured: url !== "" && school !== "" && username !== "" && password !== ""
     property string commandPassword
+    // Why the WebUntis password command failed (say, the secret isn't readable by this user), or "".
+    property bool secretFailed
+    property string secretMessage
+    readonly property string secretError: (secretFailed ? `Can't read the WebUntis password${secretMessage ? ": " + secretMessage : ""}` : "") || urlSecret.failure || schoolSecret.failure || usernameSecret.failure
     property string error
     property bool loading
     property real lastRefresh: 0
@@ -280,8 +286,8 @@ Singleton {
 
     // Logs in, runs work(cookie, element, done) and logs out once work calls done.
     function session(work: var, finished: var): void {
-        rpc("", "authenticate", { user: settings.username, password: password, client: "moqs" }, auth => {
-            const cookie = `JSESSIONID=${auth.sessionId}; schoolname="_${Qt.btoa(settings.school)}"`;
+        rpc("", "authenticate", { user: root.username, password: password, client: "moqs" }, auth => {
+            const cookie = `JSESSIONID=${auth.sessionId}; schoolname="_${Qt.btoa(root.school)}"`;
             // Students see their own timetable; other accounts fall back to their class.
             const element = auth.personId ? { id: auth.personId, type: auth.personType } : { id: auth.klasseId, type: 1 };
             work(cookie, element, () => {
@@ -418,7 +424,7 @@ Singleton {
 
     function rpc(cookie: string, method: string, params: var, done: var, failed: var): void {
         const body = JSON.stringify({ id: method, method, params, jsonrpc: "2.0" });
-        const lines = [`url = ${quote(`${url}/WebUntis/jsonrpc.do?school=${encodeURIComponent(settings.school)}`)}`, `header = "Content-Type: application/json"`, `data = ${quote(body)}`];
+        const lines = [`url = ${quote(`${url}/WebUntis/jsonrpc.do?school=${encodeURIComponent(root.school)}`)}`, `header = "Content-Type: application/json"`, `data = ${quote(body)}`];
         if (cookie)
             lines.push(`cookie = ${quote(cookie)}`);
         curl(lines, res => {
@@ -624,6 +630,27 @@ Singleton {
         onLoaded: root.parseHomework(text())
     }
 
+    Secret {
+        id: urlSecret
+
+        what: "the WebUntis URL"
+        path: settings.urlFile
+    }
+
+    Secret {
+        id: schoolSecret
+
+        what: "the WebUntis school"
+        path: settings.schoolFile
+    }
+
+    Secret {
+        id: usernameSecret
+
+        what: "the WebUntis username"
+        path: settings.usernameFile
+    }
+
     FileView {
         path: Quickshell.shellPath("webuntis.json")
         watchChanges: true
@@ -634,8 +661,11 @@ Singleton {
             id: settings
 
             property string url
+            property string urlFile
             property string school
+            property string schoolFile
             property string username
+            property string usernameFile
             property string password
             property string passwordCommand
             property string homeworkFile
@@ -658,5 +688,12 @@ Singleton {
         stdout: StdioCollector {
             onStreamFinished: root.commandPassword = text.split("\n")[0]
         }
+
+        stderr: StdioCollector {
+            onStreamFinished: root.secretMessage = text.trim().split("\n")[0].replace(/^(cat|sh): /, "")
+        }
+
+        onStarted: root.secretFailed = false
+        onExited: code => root.secretFailed = code !== 0
     }
 }

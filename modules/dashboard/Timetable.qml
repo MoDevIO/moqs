@@ -35,7 +35,7 @@ Card {
         wrapMode: Text.Wrap
         text: {
             if (!WebUntis.configured)
-                return "Set up webuntis.json";
+                return WebUntis.secretError || "Set up webuntis.json";
             if (WebUntis.error)
                 return WebUntis.error;
             if (WebUntis.loading || (WebUntis.selectedDate && !WebUntis.loaded[WebUntis.selectedDate]))

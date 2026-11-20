@@ -166,6 +166,8 @@ Don't put `homeManagerModules.default` in a NixOS module list. It stops with an 
 
 Passwords never go into the Nix store. Give exactly one of `passwordFile` (read at runtime) or `passwordCommand` (its first output line is used).
 
+Other settings you'd rather keep out of the store too can come from files read at runtime, such as sops-nix or agenix secrets: `urlFile` and `usernameFile` for Navidrome, Matrix and WebUntis, `webuntis.schoolFile` and `weather.locationFile`, each instead of the plain setting. The shell runs as you, so these files (and `passwordFile`s) have to be readable by you: with sops-nix, give the secrets `owner = "<you>";`. When one isn't readable, the panel says so.
+
 ### Options
 
 | Option | Default | |
@@ -299,7 +301,7 @@ Without the Nix module, put the panel settings next to `shell.qml`. These files 
 }
 ```
 
-The logins accept `"passwordCommand"` instead of `"password"`, and `hass.json` `"tokenCommand"` instead of `"token"`. For MPRIS (playerctl) on the music player, link in mpv-mpris; restart the shell's mpv afterwards if it is already running:
+The logins accept `"passwordCommand"` instead of `"password"`, and `hass.json` `"tokenCommand"` instead of `"token"`. Any of `"url"`, `"username"`, `"school"` and `"location"` can instead be `"urlFile"`, `"usernameFile"`, … naming a file whose first line is the value. For MPRIS (playerctl) on the music player, link in mpv-mpris; restart the shell's mpv afterwards if it is already running:
 
 ```sh
 nix build .#mpv-mpris -o mpv-mpris

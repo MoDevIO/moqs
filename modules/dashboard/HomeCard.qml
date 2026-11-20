@@ -18,7 +18,7 @@ Card {
         width: parent.width
         horizontalAlignment: Text.AlignHCenter
         wrapMode: Text.Wrap
-        text: HomeAssistant.configured ? "No sections in hass.json" : "Set up hass.json"
+        text: HomeAssistant.configured ? "No sections in hass.json" : HomeAssistant.secretError || "Set up hass.json"
         color: Config.colours.subtext
         font.family: Config.font.family
         font.pointSize: Config.font.small

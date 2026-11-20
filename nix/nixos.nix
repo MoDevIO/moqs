@@ -25,7 +25,14 @@ let
     chmod -R u+w $out
     ${lib.optionalString cfg.weather.enable ''
       cp ${
-        pkgs.writeText "weather.json" (builtins.toJSON { inherit (cfg.weather) location; })
+        pkgs.writeText "weather.json" (
+          builtins.toJSON (
+            if cfg.weather.locationFile != null then
+              { inherit (cfg.weather) locationFile; }
+            else
+              { inherit (cfg.weather) location; }
+          )
+        )
       } $out/weather.json
     ''}
   '';

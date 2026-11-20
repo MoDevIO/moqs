@@ -292,7 +292,7 @@ Item {
                 wrapMode: Text.Wrap
                 verticalAlignment: Text.AlignVCenter
                 textFormat: Text.PlainText
-                text: !Matrix.configured ? `Run gomuks-web, log in at http://localhost:29325, then create ${Quickshell.shellPath("matrix.json")}:\n\n{\n  "url": "http://localhost:29325",\n  "username": "gomuks web user",\n  "password": "…"\n}\n\n("passwordCommand" works instead of "password".)` : root.statusText
+                text: Matrix.secretError ? Matrix.secretError : !Matrix.configured ? `Run gomuks-web, log in at http://localhost:29325, then create ${Quickshell.shellPath("matrix.json")}:\n\n{\n  "url": "http://localhost:29325",\n  "username": "gomuks web user",\n  "password": "…"\n}\n\n("passwordCommand" works instead of "password".)` : root.statusText
                 color: Matrix.status === "error" && Matrix.configured ? "#ff6b6b" : Config.colours.subtext
                 font.family: Config.font.family
                 font.pointSize: Config.font.small

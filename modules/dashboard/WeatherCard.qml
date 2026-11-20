@@ -20,7 +20,7 @@ Card {
         width: parent.width
         horizontalAlignment: Text.AlignHCenter
         wrapMode: Text.Wrap
-        text: !Weather.configured ? "Set up weather.json" : Weather.error || "Loading…"
+        text: !Weather.configured ? Weather.locationError || "Set up weather.json" : Weather.error || "Loading…"
         color: Config.colours.subtext
         font.family: Config.font.family
         font.pointSize: Config.font.small

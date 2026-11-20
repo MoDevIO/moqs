@@ -15,12 +15,17 @@ Singleton {
 
     // A bare "host:port" gets http://, which curl assumes but XMLHttpRequest needs spelled out.
     readonly property string url: {
-        const u = (settings.url || "http://localhost:29325").replace(/\/+$/, "");
+        const u = (settings.url || urlSecret.value || "http://localhost:29325").replace(/\/+$/, "");
         return u.includes("://") ? u : `http://${u}`;
     }
     readonly property string password: settings.password || commandPassword
-    readonly property bool configured: settings.username !== "" && password !== ""
+    readonly property string username: settings.username || usernameSecret.value
+    readonly property bool configured: username !== "" && password !== ""
     property string commandPassword
+    // Why the gomuks password command failed (say, the secret isn't readable by this user), or "".
+    property bool secretFailed
+    property string secretMessage
+    readonly property string secretError: (secretFailed ? `Can't read the gomuks password${secretMessage ? ": " + secretMessage : ""}` : "") || urlSecret.failure || usernameSecret.failure
 
     // connecting, syncing, ready, error
     property string status: "connecting"
@@ -257,7 +262,7 @@ Singleton {
             }
         };
         xhr.open("POST", `${url}/_gomuks/exec/${command}`);
-        xhr.setRequestHeader("Authorization", `Basic ${Qt.btoa(`${settings.username}:${password}`)}`);
+        xhr.setRequestHeader("Authorization", `Basic ${Qt.btoa(`${root.username}:${password}`)}`);
         xhr.setRequestHeader("Content-Type", "application/json");
         xhr.send(JSON.stringify(params));
     }
@@ -573,6 +578,20 @@ Singleton {
         }
     }
 
+    Secret {
+        id: urlSecret
+
+        what: "the gomuks URL"
+        path: settings.urlFile
+    }
+
+    Secret {
+        id: usernameSecret
+
+        what: "the gomuks username"
+        path: settings.usernameFile
+    }
+
     FileView {
         path: Quickshell.shellPath("matrix.json")
         watchChanges: true
@@ -583,7 +602,9 @@ Singleton {
             id: settings
 
             property string url
+            property string urlFile
             property string username
+            property string usernameFile
             property string password
             property string passwordCommand
 
@@ -603,6 +624,13 @@ Singleton {
         stdout: StdioCollector {
             onStreamFinished: root.commandPassword = text.split("\n")[0]
         }
+
+        stderr: StdioCollector {
+            onStreamFinished: root.secretMessage = text.trim().split("\n")[0].replace(/^(cat|sh): /, "")
+        }
+
+        onStarted: root.secretFailed = false
+        onExited: code => root.secretFailed = code !== 0
     }
 
     // Event stream. Credentials go through stdin (curl -K -), so they stay out of the process list.
@@ -617,7 +645,7 @@ Singleton {
         onStarted: {
             lastData = Date.now();
             root.status = "connecting";
-            write(`user = "${settings.username.replace(/(["\\])/g, "\\$1")}:${root.password.replace(/(["\\])/g, "\\$1")}"\n`);
+            write(`user = "${root.username.replace(/(["\\])/g, "\\$1")}:${root.password.replace(/(["\\])/g, "\\$1")}"\n`);
             stdinEnabled = false;
         }
 
@@ -672,7 +700,7 @@ Singleton {
                 return;
             const xhr = new XMLHttpRequest();
             xhr.open("POST", `${root.url}/_gomuks/sse/ping?run_id=${root.runId}&listener_id=${root.listenerId}&last_received_event=${root.lastReceived}`);
-            xhr.setRequestHeader("Authorization", `Basic ${Qt.btoa(`${settings.username}:${root.password}`)}`);
+            xhr.setRequestHeader("Authorization", `Basic ${Qt.btoa(`${root.username}:${root.password}`)}`);
             xhr.send();
         }
     }

@@ -35,6 +35,10 @@ Singleton {
     readonly property string token: settings.token || commandToken
     readonly property bool configured: url !== "" && token !== ""
     property string commandToken
+    // Why the Home Assistant token command failed (say, the secret isn't readable by this user), or "".
+    property bool secretFailed
+    property string secretMessage
+    readonly property string secretError: secretFailed ? `Can't read the Home Assistant token${secretMessage ? ": " + secretMessage : ""}` : ""
     property string error
 
     // Sections as [{ type, title, items: [{ entity, name, icon }] }]; a section with a single
@@ -271,5 +275,12 @@ Singleton {
         stdout: StdioCollector {
             onStreamFinished: root.commandToken = text.split("\n")[0]
         }
+
+        stderr: StdioCollector {
+            onStreamFinished: root.secretMessage = text.trim().split("\n")[0].replace(/^(cat|sh): /, "")
+        }
+
+        onStarted: root.secretFailed = false
+        onExited: code => root.secretFailed = code !== 0
     }
 }

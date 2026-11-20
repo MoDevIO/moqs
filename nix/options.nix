@@ -4,6 +4,17 @@
 let
   inherit (lib) mkOption mkEnableOption types;
 
+  # A setting read from a file when the shell runs, e.g. a sops-nix or agenix secret, so it
+  # stays out of the Nix store. The shell's user has to be able to read it.
+  secretFile =
+    what:
+    mkOption {
+      type = types.nullOr types.str;
+      default = null;
+      example = "/run/secrets/example";
+      description = "File whose first line is ${what}. Read at runtime, so it stays out of the Nix store.";
+    };
+
   # A login for one of the panels. Passwords never go into the Nix store: they're read
   # at runtime from a file (e.g. a sops/agenix secret) or printed by a command.
   login =
@@ -23,10 +34,15 @@ let
         description = "Server URL for the ${name} panel.";
       };
 
+      urlFile = secretFile "the server URL, instead of `url`";
+
       username = mkOption {
         type = types.str;
+        default = "";
         description = usernameDescription;
       };
+
+      usernameFile = secretFile "the username, instead of `username`";
 
       passwordFile = mkOption {
         type = types.nullOr types.str;
@@ -110,8 +126,11 @@ in
       usernameDescription = "WebUntis username.";
     }
     // {
+      schoolFile = secretFile "the school name, instead of `school`";
+
       school = mkOption {
         type = types.str;
+        default = "";
         example = "Example-School";
         description = "School name as WebUntis knows it: the `school=` part of the WebUntis login page's URL.";
       };
@@ -165,8 +184,11 @@ in
   weather = {
     enable = mkEnableOption "the weather widget (from Open-Meteo, no API key needed)";
 
+    locationFile = secretFile "the location, instead of `location`";
+
     location = mkOption {
       type = types.str;
+      default = "";
       example = "Frankfurt, DE";
       description = ''
         Where the weather is for: a place name, optionally narrowed down by country or region

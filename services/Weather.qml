@@ -14,8 +14,9 @@ import qs.config
 Singleton {
     id: root
 
-    readonly property string location: settings.location.trim()
+    readonly property string location: (settings.location || locationSecret.value).trim()
     readonly property bool configured: location !== ""
+    readonly property string locationError: locationSecret.failure
     property string error
     property bool loading
     property real lastRefresh: 0
@@ -230,6 +231,13 @@ Singleton {
         onTriggered: root.refresh()
     }
 
+    Secret {
+        id: locationSecret
+
+        what: "the weather location"
+        path: settings.locationFile
+    }
+
     FileView {
         path: Quickshell.shellPath("weather.json")
         watchChanges: true
@@ -240,6 +248,7 @@ Singleton {
             id: settings
 
             property string location
+            property string locationFile
         }
     }
 }

@@ -11,12 +11,17 @@ Singleton {
     id: root
 
     readonly property string url: {
-        const u = settings.url.replace(/\/+$/, "");
+        const u = (settings.url || urlSecret.value).replace(/\/+$/, "");
         return !u || u.includes("://") ? u : `https://${u}`;
     }
     readonly property string password: settings.password || commandPassword
-    readonly property bool configured: url !== "" && settings.username !== "" && password !== ""
+    readonly property string username: settings.username || usernameSecret.value
+    readonly property bool configured: url !== "" && username !== "" && password !== ""
     property string commandPassword
+    // Why the Navidrome password command failed (say, the secret isn't readable by this user), or "".
+    property bool secretFailed
+    property string secretMessage
+    readonly property string secretError: (secretFailed ? `Can't read the Navidrome password${secretMessage ? ": " + secretMessage : ""}` : "") || urlSecret.failure || usernameSecret.failure
     property string error
 
     // Browsing state
@@ -29,7 +34,7 @@ Singleton {
     function query(params: var): string {
         const salt = Math.random().toString(36).slice(2, 10);
         const all = Object.assign({
-            u: settings.username,
+            u: root.username,
             t: Qt.md5(password + salt),
             s: salt,
             v: "1.16.1",
@@ -41,7 +46,7 @@ Singleton {
 
     function api(endpoint: string, params: var, done: var): void {
         if (!configured) {
-            error = "Set up navidrome.json";
+            error = secretError || "Set up navidrome.json";
             return;
         }
         const xhr = new XMLHttpRequest();
@@ -151,6 +156,20 @@ Singleton {
 
     onConfiguredChanged: if (configured) loadAlbums("newest")
 
+    Secret {
+        id: urlSecret
+
+        what: "the Navidrome URL"
+        path: settings.urlFile
+    }
+
+    Secret {
+        id: usernameSecret
+
+        what: "the Navidrome username"
+        path: settings.usernameFile
+    }
+
     FileView {
         id: file
 
@@ -163,7 +182,9 @@ Singleton {
             id: settings
 
             property string url
+            property string urlFile
             property string username
+            property string usernameFile
             property string password
             property string passwordCommand
 
@@ -183,5 +204,12 @@ Singleton {
         stdout: StdioCollector {
             onStreamFinished: root.commandPassword = text.split("\n")[0]
         }
+
+        stderr: StdioCollector {
+            onStreamFinished: root.secretMessage = text.trim().split("\n")[0].replace(/^(cat|sh): /, "")
+        }
+
+        onStarted: root.secretFailed = false
+        onExited: code => root.secretFailed = code !== 0
     }
 }
