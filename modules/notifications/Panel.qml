@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Hyprland
 import qs.config
 import qs.services
+import qs.modules
 
 // Top-right panel that grows out of the frame: popups, or the full notification centre.
 Item {
@@ -176,6 +177,10 @@ Item {
 
             ListView {
                 id: list
+
+                SmoothScroll {
+                    flickable: list
+                }
 
                 Layout.fillWidth: true
                 Layout.fillHeight: true

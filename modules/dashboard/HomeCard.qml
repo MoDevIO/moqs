@@ -3,6 +3,7 @@ import QtQuick.Layouts
 import qs.config
 import qs.modules.controlcentre
 import qs.services
+import qs.modules
 
 // Home Assistant: the sections hass.json lists, top to bottom.
 Card {
@@ -24,6 +25,12 @@ Card {
     }
 
     Flickable {
+        id: flick
+
+        SmoothScroll {
+            flickable: flick
+        }
+
         anchors.fill: parent
         visible: HomeAssistant.configured
         clip: true

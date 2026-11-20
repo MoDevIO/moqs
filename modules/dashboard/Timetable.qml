@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import qs.config
 import qs.services
+import qs.modules
 
 // Today's lessons from WebUntis until the last one is over, then the next school day's.
 // The arrows browse other days; reopening the dashboard goes back.
@@ -47,6 +48,10 @@ Card {
 
     ListView {
         id: list
+
+        SmoothScroll {
+            flickable: list
+        }
 
         anchors.fill: parent
         clip: true

@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Widgets
 import qs.config
 import qs.modules.controlcentre as CC
+import qs.modules
 
 // App launcher that grows out of the middle of the bar. Typing filters the apps; Enter or
 // a click starts one, arrows (or Tab) move, Escape closes.
@@ -158,6 +159,10 @@ Item {
 
             ListView {
                 id: list
+
+                SmoothScroll {
+                    flickable: list
+                }
 
                 Layout.fillWidth: true
                 Layout.preferredHeight: Math.min(count, Config.launcher.shown) * root.rowHeight + Math.max(0, Math.min(count, Config.launcher.shown) - 1) * spacing

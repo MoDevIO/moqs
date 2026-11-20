@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import qs.config
 import qs.services
+import qs.modules
 
 // Clipboard history, newest first. Typing filters it; click or Enter copies an entry back,
 // arrows move through the list.
@@ -102,6 +103,10 @@ Item {
 
         ListView {
             id: list
+
+            SmoothScroll {
+                flickable: list
+            }
 
             Layout.fillWidth: true
             Layout.preferredHeight: Math.min(contentHeight, 320)

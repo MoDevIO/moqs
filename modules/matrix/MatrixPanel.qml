@@ -5,6 +5,7 @@ import Quickshell.Hyprland
 import Quickshell.Widgets
 import qs.config
 import qs.services
+import qs.modules
 
 // Matrix client in the bottom-right corner: rooms, then a conversation with a message field.
 Item {
@@ -340,6 +341,10 @@ Item {
             ListView {
                 id: rooms
 
+                SmoothScroll {
+                    flickable: rooms
+                }
+
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.leftMargin: Config.controlCentre.padding
@@ -572,6 +577,10 @@ Item {
             // Conversation, newest at the bottom
             ListView {
                 id: timeline
+
+                SmoothScroll {
+                    flickable: timeline
+                }
 
                 Layout.fillWidth: true
                 Layout.fillHeight: true

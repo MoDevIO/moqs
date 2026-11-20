@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell.Networking
 import qs.config
+import qs.modules
 
 // Networks seen by the Wi-Fi devices. Click to connect or disconnect;
 // secured networks without saved settings ask for a password first.
@@ -73,6 +74,10 @@ Rectangle {
 
         ListView {
             id: list
+
+            SmoothScroll {
+                flickable: list
+            }
 
             Layout.fillWidth: true
             Layout.preferredHeight: Math.min(contentHeight, 240)

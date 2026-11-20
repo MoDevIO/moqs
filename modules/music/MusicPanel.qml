@@ -3,6 +3,7 @@ import QtQuick.Layouts
 import Quickshell
 import qs.config
 import qs.services
+import qs.modules
 
 // Navidrome client in the bottom-left corner: now playing on top, then search and browsing.
 Item {
@@ -445,6 +446,10 @@ Item {
 
             ListView {
                 id: list
+
+                SmoothScroll {
+                    flickable: list
+                }
 
                 Layout.fillWidth: true
                 Layout.fillHeight: true

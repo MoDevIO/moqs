@@ -5,7 +5,7 @@ import Quickshell
 import Quickshell.Io
 import qs.config
 
-// WebUntis timetable and homework, plus homework kept locally in a text file.
+// WebUntis timetable, homework and exams, plus homework and exams kept locally in a text file.
 // Settings come from webuntis.json next to shell.qml:
 //   { "url": "https://mese.webuntis.com", "school": "Example-School", "username": "me",
 //     "passwordCommand": "pass show webuntis", "homeworkFile": "/path/to/homework.txt" }
@@ -47,6 +47,21 @@ Singleton {
     // homework ticked off.
     property var localHomework: []
     property var ticked: ({})
+
+    // WebUntis exams from today on: [{ key, subject, name, text, date, start }], subject as
+    // its short name. WebUntis gives students no exam IDs, so key is made from date, subject
+    // and name.
+    property var remoteExams: []
+    // Own exams from the text file: [{ text, subject, date, progress }], and how far along the
+    // learning for WebUntis exams is, by key. Progress is 0..100.
+    property var localExams: []
+    property var examProgress: ({})
+
+    // Own and WebUntis exams from today on, soonest first.
+    readonly property var exams: [
+        ...localExams.map((e, i) => ({ local: true, index: i, subject: e.subject, text: e.text, date: e.date, progress: e.progress })),
+        ...remoteExams.map(e => ({ local: false, key: e.key, subject: longName(e.subject), text: [e.name, e.text].filter(x => x).join(" · "), date: e.date, progress: examProgress[e.key] ?? 0 }))
+    ].filter(e => e.date >= today).sort((a, b) => a.date - b.date)
 
     // Today's date and time, updated every minute.
     property date now: new Date()
@@ -116,10 +131,35 @@ Singleton {
         return due <= addDays(today, 3) ? "near" : "";
     }
 
+    // How soon an exam is: "late" (within two days), "soon" (within a week), "near" (within
+    // two weeks) or "". Exams need more lead time than homework.
+    function examUrgency(date: int): string {
+        if (date <= addDays(today, 2))
+            return "late";
+        if (date <= addDays(today, 7))
+            return "soon";
+        return date <= addDays(today, 14) ? "near" : "";
+    }
+
+    // "Today", "Tomorrow", "in 5 days", "in 3 weeks".
+    function countdown(n: int): string {
+        const days = Math.round((toDate(n) - toDate(today)) / 86400000);
+        if (days <= 0)
+            return "Today";
+        if (days === 1)
+            return "Tomorrow";
+        return days < 21 ? `in ${days} days` : `in ${Math.round(days / 7)} weeks`;
+    }
+
     // Reads a new homework entry: a subject (a short name from "subjects" or its WebUntis name)
     // and a due date are picked out of the text and removed from it. Without a date, the
-    // subject's next lesson sets it. Returns { subject, due, guessed, text }.
+    // subject's next lesson sets it. Starting with "exam:" (or "test:", "klausur:") makes it an
+    // exam. Returns { exam, subject, due, guessed, text }.
     function parseEntry(input: string): var {
+        const prefix = input.match(/^\s*(?:exam|test|klausur|klassenarbeit|kursarbeit)\s*:/i);
+        const exam = !!prefix;
+        if (prefix)
+            input = input.slice(prefix[0].length);
         let text = " " + input.replace(/\s+/g, " ") + " ";
         const take = re => {
             const m = text.match(re);
@@ -185,7 +225,7 @@ Singleton {
                 guessed = true;
             }
         }
-        return { subject, due, guessed, text: text.replace(/\s+/g, " ").replace(/^[\s,;:\-–]+|[\s,;:\-–]+$/g, "") };
+        return { exam, subject, due, guessed, text: text.replace(/\s+/g, " ").replace(/^[\s,;:\-–]+|[\s,;:\-–]+$/g, "") };
     }
 
     function isoDate(n: int): string {
@@ -288,7 +328,7 @@ Singleton {
         // Also on failure, so a wrong password isn't retried every minute.
         lastRefresh = Date.now();
         session((cookie, element, done) => {
-            let pending = 3;
+            let pending = 4;
             const finish = () => {
                 if (--pending === 0)
                     done();
@@ -319,6 +359,21 @@ Singleton {
                     due: h.dueDate,
                     completed: !!h.completed
                 })).sort((a, b) => a.due - b.due);
+                finish();
+            }, finish);
+            // Students see their own exams; other accounts their class's.
+            const who = element.type === 5 ? `studentId=${element.id}&klasseId=-1` : `studentId=-1&klasseId=${element.id}`;
+            rest(cookie, `/WebUntis/api/exams?startDate=${today}&endDate=${addDays(today, Config.webuntis.examDays)}&${who}&withGrades=true`, res => {
+                const list = res?.data?.exams;
+                if (Array.isArray(list))
+                    remoteExams = list.filter(e => e.examDate >= today).map(e => ({
+                        key: e.id ? String(e.id) : `${e.examDate}:${e.subject ?? ""}:${e.name ?? ""}`.replace(/\s+/g, "_"),
+                        subject: e.subject ?? "",
+                        name: (e.name || e.examType || "").trim(),
+                        text: (e.text ?? "").trim(),
+                        date: e.examDate,
+                        start: e.startTime ?? 0
+                    }));
                 finish();
             }, finish);
         }, () => loading = false);
@@ -428,10 +483,26 @@ Singleton {
     //   [ ] 2026-11-21 | Englisch | S. 42 Nr. 3
     // Date and subject may be empty ("[ ] - | | text"), or left out for plain "[ ] text".
     // "[x] untis:<id>" ticks off a WebUntis homework; anything after the id is a reminder.
+    // Exams have the learning progress in the brackets, own ones the same fields as homework:
+    //   [exam 40%] 2026-12-03 | Mathematik | Kurvendiskussion
+    //   [exam 60%] untis:<key>
     function parseHomework(text: string): void {
         const local = [];
         const marks = {};
+        const exams = [];
+        const progress = {};
         for (const line of text.split("\n")) {
+            const x = line.match(/^\s*\[exam(?:\s+(\d+)%?)?\]\s?(.*)$/i);
+            if (x) {
+                const p = Math.max(0, Math.min(100, Number(x[1] ?? 0)));
+                const remote = x[2].match(/^untis:(\S+)/);
+                const parts = x[2].match(/^\s*(\d{4}-\d{2}-\d{2})\s*\|\s*(.*?)\s*\|\s*(.*)$/);
+                if (remote)
+                    progress[remote[1]] = p;
+                else if (parts)
+                    exams.push({ date: Number(parts[1].replace(/-/g, "")), subject: parts[2], text: parts[3].trim(), progress: p });
+                continue;
+            }
             const m = line.match(/^\s*\[([ xX])\]\s?(.*)$/);
             if (!m)
                 continue;
@@ -448,13 +519,23 @@ Singleton {
         }
         localHomework = local;
         ticked = marks;
+        localExams = exams;
+        examProgress = progress;
     }
 
     function saveHomework(): void {
-        const lines = ["# moqs homework. One per line, \"[ ]\" to do and \"[x]\" done: \"[ ] 2026-11-21 | Englisch | S. 42 Nr. 3\".", "# \"[x] untis:<id>\" ticks off a WebUntis homework.", ...localHomework.map(h => `[${h.done ? "x" : " "}] ${h.due ? isoDate(h.due) : "-"} | ${h.subject.replace(/\|/g, "/")} | ${h.text}`)];
+        const lines = ["# moqs homework. One per line, \"[ ]\" to do and \"[x]\" done: \"[ ] 2026-11-21 | Englisch | S. 42 Nr. 3\".", "# \"[x] untis:<id>\" ticks off a WebUntis homework.", "# Exams with how far the learning is: \"[exam 40%] 2026-12-03 | Mathematik | Kurvendiskussion\", \"[exam 40%] untis:<key>\".", ...localHomework.map(h => `[${h.done ? "x" : " "}] ${h.due ? isoDate(h.due) : "-"} | ${h.subject.replace(/\|/g, "/")} | ${h.text}`)];
         for (const id of Object.keys(ticked)) {
             const h = remoteHomework.find(r => r.id === id);
             lines.push(`[x] untis:${id}${h ? `  ${[h.subject, h.text].filter(x => x).join(": ").replace(/\s+/g, " ").slice(0, 80)}` : ""}`);
+        }
+        for (const e of localExams)
+            lines.push(`[exam ${e.progress}%] ${isoDate(e.date)} | ${e.subject.replace(/\|/g, "/")} | ${e.text}`);
+        for (const key of Object.keys(examProgress)) {
+            const e = remoteExams.find(r => r.key === key);
+            // Exams that have passed drop out once WebUntis no longer lists them.
+            if (e || Number(key.slice(0, 8)) >= today || !/^\d{8}:/.test(key))
+                lines.push(`[exam ${examProgress[key]}%] untis:${key}${e ? `  ${[longName(e.subject), e.name].filter(x => x).join(": ")}` : ""}`);
         }
         homeworkFile.setText(lines.join("\n") + "\n");
     }
@@ -464,6 +545,11 @@ Singleton {
         const e = parseEntry(input);
         if (!e.subject || !e.due)
             return false;
+        if (e.exam) {
+            localExams = [...localExams, { text: e.text, subject: e.subject, date: e.due, progress: 0 }];
+            saveHomework();
+            return true;
+        }
         localHomework = [{ text: e.text, subject: e.subject, due: e.due, done: false }, ...localHomework];
         saveHomework();
         return true;
@@ -471,6 +557,24 @@ Singleton {
 
     function removeHomework(index: int): void {
         localHomework = localHomework.filter((_, i) => i !== index);
+        saveHomework();
+    }
+
+    function removeExam(index: int): void {
+        localExams = localExams.filter((_, i) => i !== index);
+        saveHomework();
+    }
+
+    // Sets how far the learning for an exam (an entry of exams) is, 0..100.
+    function setExamProgress(exam: var, value: int): void {
+        value = Math.max(0, Math.min(100, Math.round(value)));
+        if (exam.local) {
+            localExams = localExams.map((e, i) => i === exam.index ? Object.assign({}, e, { progress: value }) : e);
+        } else {
+            const p = Object.assign({}, examProgress);
+            p[exam.key] = value;
+            examProgress = p;
+        }
         saveHomework();
     }
 

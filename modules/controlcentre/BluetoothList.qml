@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell.Bluetooth
 import qs.config
+import qs.modules
 
 // Paired and nearby Bluetooth devices. Click to connect or disconnect;
 // unpaired devices are paired, trusted and then connected.
@@ -65,6 +66,10 @@ Rectangle {
 
         ListView {
             id: list
+
+            SmoothScroll {
+                flickable: list
+            }
 
             Layout.fillWidth: true
             Layout.preferredHeight: Math.min(contentHeight, 240)
