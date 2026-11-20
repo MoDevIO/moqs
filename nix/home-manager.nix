@@ -88,7 +88,15 @@ let
     };
 in
 {
-  options.services.moqs = import ./options.nix { inherit lib; };
+  options.services.moqs = import ./options.nix { inherit lib; } // {
+    # The login screen is system-wide and lives in the NixOS module; this only catches it
+    # being set here by mistake.
+    greeter = lib.mkOption {
+      type = lib.types.attrsOf lib.types.anything;
+      default = { };
+      visible = false;
+    };
+  };
 
   # Imported as a NixOS module by mistake, this would fail with confusing errors about
   # systemd.user.services; say what to do instead.
@@ -97,8 +105,13 @@ in
       throw "moqs: homeManagerModules.default is a Home Manager module. In a NixOS configuration, import moqs.nixosModules.default and set services.moqs.user instead."
     else
       lib.mkIf cfg.enable {
-        assertions =
-          loginAssertions "navidrome" cfg.navidrome
+        assertions = [
+          {
+            assertion = cfg.greeter == { };
+            message = "services.moqs.greeter is the login screen, which is system-wide: set it in your NixOS configuration (with nixosModules.default), not in Home Manager.";
+          }
+        ]
+          ++ loginAssertions "navidrome" cfg.navidrome
           ++ loginAssertions "matrix" cfg.matrix
           ++ loginAssertions "webuntis" cfg.webuntis
           ++ lib.optional cfg.navidrome.enable {

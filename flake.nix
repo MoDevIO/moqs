@@ -21,13 +21,23 @@
         mpv-mpris = pkgs.mpvScripts.mpris;
       });
 
+      # Keyed, so importing a module twice (say, homeManagerModules.default by hand and
+      # again through the NixOS module) loads it once.
       homeManagerModules = {
-        moqs = import ./nix/home-manager.nix self;
+        moqs = {
+          key = "moqs/home-manager";
+          _file = ./nix/home-manager.nix;
+          imports = [ (import ./nix/home-manager.nix self) ];
+        };
         default = self.homeManagerModules.moqs;
       };
 
       nixosModules = {
-        moqs = import ./nix/nixos.nix self;
+        moqs = {
+          key = "moqs/nixos";
+          _file = ./nix/nixos.nix;
+          imports = [ (import ./nix/nixos.nix self) ];
+        };
         default = self.nixosModules.moqs;
       };
 
