@@ -8,13 +8,73 @@ import Quickshell.Io
 // The app launcher, which grows out of the bar on the focused monitor. Opened over IPC:
 //   qs ipc call launcher toggle   (open, close)
 // How often and when each app was started is kept in $XDG_STATE_HOME/moqs/launcher.json, so
-// the ones used most rank first.
+// the ones used most rank first. Snippets live next to it in snippets.txt, one per line as
+// "name: text" ("\n" for a line break). Recent files come from the list GTK apps share,
+// ~/.local/share/recently-used.xbel.
 Singleton {
     id: root
 
+    readonly property string stateDir: `${Quickshell.env("XDG_STATE_HOME") || `${Quickshell.env("HOME")}/.local/state`}/moqs`
+
+    // [[emoji, description, aliases, tags]], from gemoji.
+    property var emoji: []
+    // [{ name, text }]
+    property var snippets: []
+    // Newest first: [{ url, path, name, dir, mime, time }]
+    property var recentFiles: []
+
+    function parseSnippets(text: string): void {
+        const out = [];
+        for (const line of text.split("\n")) {
+            const m = line.match(/^\s*([^#:][^:]*?)\s*:\s?(.*)$/);
+            if (m)
+                out.push({ name: m[1], text: m[2].replace(/\\n/g, "\n") });
+        }
+        snippets = out;
+    }
+
+    function saveSnippets(list: var): void {
+        snippets = list;
+        const lines = ["# moqs snippets, one per line as \"name: text\"; \\n is a line break.", ...list.map(x => `${x.name.replace(/:/g, "")}: ${x.text.replace(/\n/g, "\\n")}`)];
+        snippetsFile.setText(lines.join("\n") + "\n");
+    }
+
+    // Saves a snippet, replacing one of the same name.
+    function addSnippet(name: string, text: string): void {
+        saveSnippets([...snippets.filter(x => x.name.toLowerCase() !== name.toLowerCase()), { name, text }]);
+    }
+
+    function removeSnippet(name: string): void {
+        saveSnippets(snippets.filter(x => x.name !== name));
+    }
+
+    function parseRecent(xml: string): void {
+        const home = Quickshell.env("HOME");
+        const out = [];
+        const re = /<bookmark\s+href="(file:\/\/[^"]+)"[^>]*?modified="([^"]+)"[^>]*>([\s\S]*?)<\/bookmark>/g;
+        let m;
+        while ((m = re.exec(xml))) {
+            let path;
+            try {
+                path = decodeURIComponent(m[1].slice(7));
+            } catch (e) {
+                continue;
+            }
+            const mime = (m[3].match(/<mime:mime-type\s+type="([^"]+)"/) ?? [])[1] ?? "";
+            const slash = path.lastIndexOf("/");
+            out.push({ url: m[1], path, name: path.slice(slash + 1), dir: path.slice(0, slash).replace(home, "~") || "/", mime, time: Date.parse(m[2]) || 0 });
+        }
+        recentFiles = out.sort((a, b) => b.time - a.time).slice(0, 300);
+    }
+
+    // An icon name for a MIME type, e.g. "application/pdf" -> "application-pdf".
+    function mimeIcon(mime: string): string {
+        return mime ? mime.replace("/", "-") : "text-x-generic";
+    }
+
     // app id -> { count, last } (last in ms)
     property var usage: ({})
-    readonly property string usagePath: `${Quickshell.env("XDG_STATE_HOME") || `${Quickshell.env("HOME")}/.local/state`}/moqs/launcher.json`
+    readonly property string usagePath: `${stateDir}/launcher.json`
 
     // How much an app's use lifts it: grows with the count, halved for apps not started in
     // a month. 0..30.
@@ -144,6 +204,34 @@ Singleton {
     }
 
     Component.onCompleted: Quickshell.execDetached(["mkdir", "-p", usagePath.replace(/\/[^\/]*$/, "")])
+
+    FileView {
+        path: Quickshell.shellPath("assets/emoji.json")
+        printErrors: false
+        onLoaded: {
+            try {
+                root.emoji = JSON.parse(text());
+            } catch (e) {}
+        }
+    }
+
+    FileView {
+        id: snippetsFile
+
+        path: `${root.stateDir}/snippets.txt`
+        watchChanges: true
+        printErrors: false
+        onFileChanged: reload()
+        onLoaded: root.parseSnippets(text())
+    }
+
+    FileView {
+        path: `${Quickshell.env("XDG_DATA_HOME") || `${Quickshell.env("HOME")}/.local/share`}/recently-used.xbel`
+        watchChanges: true
+        printErrors: false
+        onFileChanged: reload()
+        onLoaded: root.parseRecent(text())
+    }
 
     FileView {
         id: usageFile

@@ -71,6 +71,13 @@ in
         }
       );
 
+  launcher.searchEngine = mkOption {
+    type = types.str;
+    default = "https://duckduckgo.com/?q=%s";
+    example = "https://www.startpage.com/do/search?q=%s";
+    description = "Web search for the launcher's `?` mode; `%s` stands for the query.";
+  };
+
   airdrop.name = mkOption {
     type = types.nullOr types.str;
     default = null;

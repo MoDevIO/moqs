@@ -54,6 +54,9 @@ Singleton {
         // Height of one app row, and how many rows show before the list scrolls.
         readonly property int row: 44
         readonly property int shown: 8
+        // Web search for "?…", %s being the query, unless settings.json sets launcher.search
+        // (the Nix option services.moqs.launcher.searchEngine).
+        readonly property string search: "https://duckduckgo.com/?q=%s"
     }
 
     // The level shown in place of the clock while volume or brightness changes.

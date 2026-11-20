@@ -9,9 +9,12 @@ import qs.modules
 import qs.services
 
 // App launcher that grows out of the middle of the bar. Typing filters the apps, the ones
-// used most first, with matching Matrix rooms among them; Enter or a click starts or opens
-// one, arrows (or Tab) move, Escape closes. "=" calculates (Enter copies the result), ">"
-// runs a command (Shift+Enter in a terminal).
+// used most first, with matching Matrix rooms and recent files among them; Enter or a click
+// starts or opens one, arrows (or Tab) move, Escape closes. A first character switches mode:
+//   = calculate (Enter copies)      > run a command (Shift+Enter in a terminal)
+//   ? search the web or open a URL  : find an emoji (Enter copies)
+//   ; snippets (Enter copies; "name: text" saves one, Ctrl+Delete removes)
+//   / recent files
 Item {
     id: root
 
@@ -46,22 +49,80 @@ Item {
 
     readonly property string query: search.text.trim()
     // "apps", "calc" or "run", from the first character.
-    readonly property string mode: query.startsWith("=") ? "calc" : query.startsWith(">") ? "run" : "apps"
+    readonly property var prefixes: ({ "=": "calc", ">": "run", "?": "web", ":": "emoji", ";": "snippet", "/": "file" })
+    readonly property string mode: prefixes[query.charAt(0)] ?? "apps"
+    // The query without its mode character.
+    readonly property string rest: mode === "apps" ? query : query.slice(1).trim()
 
-    // What the list shows: [{ kind: "app" | "room" | "calc" | "run", … }]
-    readonly property var shown: {
-        if (mode === "calc") {
-            const expr = query.slice(1).trim();
-            const v = Launcher.calculate(expr);
-            return [{ kind: "calc", expr, result: isNaN(v) ? "" : Launcher.formatNumber(v) }];
+    // Recent files whose name contains q, newest first: [{ kind: "file", file, score }]
+    function files(q: string, limit: int, base: real): var {
+        const out = [];
+        for (const f of Launcher.recentFiles) {
+            const name = f.name.toLowerCase();
+            const i = q ? name.indexOf(q) : 0;
+            if (i < 0)
+                continue;
+            out.push({ kind: "file", file: f, score: base + (i === 0 ? 5 : 0) });
+            if (out.length >= limit)
+                break;
         }
-        if (mode === "run")
-            return [{ kind: "run", command: query.slice(1).trim() }];
+        return out;
+    }
 
-        const q = query.toLowerCase();
+    // What the list shows: [{ kind: "app" | "room" | "file" | "calc" | "run" | "web" | "url"
+    // | "emoji" | "snippet" | "save", … }]
+    readonly property var shown: {
+        const q = rest.toLowerCase();
+        switch (mode) {
+        case "calc": {
+            const v = Launcher.calculate(rest);
+            return [{ kind: "calc", expr: rest, result: isNaN(v) ? "" : Launcher.formatNumber(v) }];
+        }
+        case "run":
+            return [{ kind: "run", command: rest }];
+        case "web": {
+            const out = [];
+            // Something like a web address: open it as well.
+            if (/^(https?:\/\/)?[\w-]+(\.[\w-]+)+(:\d+)?(\/\S*)?$/i.test(rest))
+                out.push({ kind: "url", url: /^https?:\/\//i.test(rest) ? rest : `https://${rest}` });
+            out.push({ kind: "web", text: rest });
+            return out;
+        }
+        case "emoji": {
+            if (!q)
+                return Launcher.emoji.slice(0, 60).map(e => ({ kind: "emoji", emoji: e }));
+            const words = q.split(/\s+/);
+            const out = [];
+            for (const e of Launcher.emoji) {
+                const aliases = e[2].split(" ");
+                const name = e[1].toLowerCase();
+                let sc = 0;
+                if (aliases.includes(q.replace(/:/g, "")))
+                    sc = 100;
+                else if (words.every(w => aliases.some(a => a.startsWith(w)) || name.split(/[\s-]+/).some(n => n.startsWith(w))))
+                    sc = 50;
+                else if (words.every(w => name.includes(w) || e[3].includes(w)))
+                    sc = 20;
+                if (sc)
+                    out.push({ kind: "emoji", emoji: e, score: sc });
+            }
+            return out.sort((a, b) => b.score - a.score).slice(0, 60);
+        }
+        case "snippet": {
+            const out = Launcher.snippets.filter(x => !q || x.name.toLowerCase().includes(q) || x.text.toLowerCase().includes(q)).map(x => ({ kind: "snippet", snippet: x }));
+            // "name: text" saves a snippet.
+            const m = rest.match(/^([^:]+?)\s*:\s*(.+)$/);
+            if (m)
+                out.unshift({ kind: "save", name: m[1], text: m[2] });
+            return out;
+        }
+        case "file":
+            return files(q, 60, 0);
+        }
+
         Launcher.usage;
         if (!q)
-            return apps.map(a => ({ kind: "app", app: a, score: Launcher.boost(a.id) })).sort((a, b) => b.score - a.score);
+            return apps.map(a => ({ kind: "app", app: a, score: Launcher.boost(a.id) })).sort((a, b) => b.score - a.score || a.app.name.localeCompare(b.app.name));
         const out = [];
         for (const a of apps) {
             const sc = score(a, q);
@@ -79,7 +140,16 @@ Item {
                     out.push({ kind: "room", room: r, score: sc });
             }
         }
-        return out.sort((a, b) => b.score - a.score);
+        // A few recent files, below good app matches.
+        if (q.length >= 3)
+            out.push(...files(q, 3, 55));
+        return out.sort((a, b) => b.score - a.score || root.title(a).localeCompare(root.title(b)));
+    }
+
+    function copy(text: string): void {
+        // wl-copy rather than Quickshell.clipboardText: the clipboard needs a focused window,
+        // and the launcher's goes away as it closes.
+        Quickshell.execDetached(["wl-copy", "--", text]);
     }
 
     // Starts, opens, copies or runs a row. In a terminal: commands only, with Shift+Enter.
@@ -96,10 +166,13 @@ Item {
             // Opens the Matrix panel on the room, with the message field ready.
             Matrix.replyRequested(item.room.meta.room_id);
             return;
+        case "file":
+            Qt.openUrlExternally(item.file.url);
+            break;
         case "calc":
             if (!item.result)
                 return;
-            Quickshell.execDetached(["wl-copy", "--", item.result]);
+            copy(item.result);
             break;
         case "run":
             if (!item.command)
@@ -109,9 +182,85 @@ Item {
             else
                 Quickshell.execDetached(["sh", "-c", item.command]);
             break;
+        case "web":
+            if (!item.text)
+                return;
+            Qt.openUrlExternally(Settings.search.replace("%s", encodeURIComponent(item.text)));
+            break;
+        case "url":
+            Qt.openUrlExternally(item.url);
+            break;
+        case "emoji":
+            copy(item.emoji[0]);
+            break;
+        case "snippet":
+            copy(item.snippet.text);
+            break;
+        case "save":
+            Launcher.addSnippet(item.name, item.text);
+            search.text = ";";
+            return;
         }
         root.closed();
     }
+
+    // The row's main text, and the grey one beside it.
+    function title(item: var): string {
+        switch (item.kind) {
+        case "app":
+            return item.app.name;
+        case "room":
+            return Matrix.roomName(item.room);
+        case "file":
+            return item.file.name;
+        case "calc":
+            return item.result ? `= ${item.result}` : item.expr ? "…" : "Type a calculation";
+        case "run":
+            return item.command || "Type a command";
+        case "web":
+            return item.text ? `Search for "${item.text}"` : "Type to search the web";
+        case "url":
+            return item.url.replace(/^https?:\/\//i, "");
+        case "emoji":
+            return item.emoji[1].charAt(0).toUpperCase() + item.emoji[1].slice(1);
+        case "snippet":
+            return item.snippet.name;
+        case "save":
+            return `Save snippet "${item.name}"`;
+        }
+        return "";
+    }
+
+    function detail(item: var): string {
+        switch (item.kind) {
+        case "app":
+            return item.app.genericName || item.app.comment;
+        case "room": {
+            const b = Matrix.bridge(item.room);
+            return b ? `Matrix · ${({ discord: "Discord", signal: "Signal", telegram: "Telegram", whatsapp: "WhatsApp" })[b]}` : "Matrix";
+        }
+        case "file":
+            return item.file.dir;
+        case "calc":
+            return item.result ? "Enter copies" : "";
+        case "run":
+            return item.command ? "Enter runs · Shift+Enter in a terminal" : "";
+        case "web":
+            return item.text ? Settings.search.replace(/^https?:\/\/(www\.)?/, "").replace(/\/.*$/, "") : "";
+        case "url":
+            return "Open";
+        case "emoji":
+            return item.emoji[2].split(" ").map(a => `:${a}:`).join(" ");
+        case "snippet":
+            return item.snippet.text.replace(/\n/g, " ⏎ ");
+        case "save":
+            return item.text;
+        }
+        return "";
+    }
+
+    // Glyph for rows without an app icon, avatar or emoji.
+    readonly property var glyphs: ({ calc: "\u{F00EC}", run: "\u{F018D}", web: "\u{F0349}", url: "\u{F059F}", snippet: "\u{F09ED}", save: "\u{F0415}" })
 
     readonly property int rowHeight: Config.launcher.row
     readonly property real targetWidth: open ? Config.launcher.width : Config.launcher.seed
@@ -200,6 +349,14 @@ Item {
 
                     onTextChanged: list.currentIndex = 0
                     Keys.onReturnPressed: event => root.activate(root.shown[list.currentIndex], event.modifiers & Qt.ShiftModifier)
+                    // Ctrl+Delete removes the selected snippet.
+                    Keys.onDeletePressed: event => {
+                        const item = root.shown[list.currentIndex];
+                        if (event.modifiers & Qt.ControlModifier && item?.kind === "snippet")
+                            Launcher.removeSnippet(item.snippet.name);
+                        else
+                            event.accepted = false;
+                    }
                     Keys.onEnterPressed: event => root.activate(root.shown[list.currentIndex], event.modifiers & Qt.ShiftModifier)
                     Keys.onDownPressed: list.incrementCurrentIndex()
                     Keys.onUpPressed: list.decrementCurrentIndex()
@@ -210,7 +367,7 @@ Item {
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
                         visible: !search.text
-                        text: "Apps and rooms  ·  = calculate  ·  > run"
+                        text: "Search apps, rooms and files"
                         color: Config.colours.muted
                         font: search.font
                     }
@@ -284,11 +441,25 @@ Item {
                                 source: row.kind === "room" ? Matrix.mediaUrl(row.modelData.room.meta.avatar ?? "", false) : ""
                             }
 
-                            // Calculator and command
+                            IconImage {
+                                anchors.fill: parent
+                                visible: row.kind === "file"
+                                source: row.kind === "file" ? Quickshell.iconPath(Launcher.mimeIcon(row.modelData.file.mime), "text-x-generic") : ""
+                                asynchronous: true
+                            }
+
                             Text {
                                 anchors.centerIn: parent
-                                visible: row.kind === "calc" || row.kind === "run"
-                                text: row.kind === "calc" ? "\u{F00EC}" : "\u{F018D}"
+                                visible: row.kind === "emoji"
+                                text: row.kind === "emoji" ? row.modelData.emoji[0] : ""
+                                font.family: "Noto Color Emoji"
+                                font.pointSize: Config.font.icon + 2
+                            }
+
+                            Text {
+                                anchors.centerIn: parent
+                                visible: text !== ""
+                                text: root.glyphs[row.kind] ?? ""
                                 color: Config.colours.subtext
                                 font.family: Config.font.family
                                 font.pointSize: Config.font.icon
@@ -296,21 +467,12 @@ Item {
                         }
 
                         Text {
+                            readonly property bool placeholder: (row.kind === "calc" && !row.modelData.result) || (row.kind === "run" && !row.modelData.command) || (row.kind === "web" && !row.modelData.text)
+
                             Layout.maximumWidth: list.width * 0.6
-                            text: {
-                                switch (row.kind) {
-                                case "app":
-                                    return row.modelData.app.name;
-                                case "room":
-                                    return Matrix.roomName(row.modelData.room);
-                                case "calc":
-                                    return row.modelData.result ? `= ${row.modelData.result}` : row.modelData.expr ? "…" : "Type a calculation";
-                                default:
-                                    return row.modelData.command || "Type a command";
-                                }
-                            }
+                            text: root.title(row.modelData)
                             elide: Text.ElideRight
-                            color: (row.kind === "calc" && !row.modelData.result) || (row.kind === "run" && !row.modelData.command) ? Config.colours.subtext : Config.colours.text
+                            color: placeholder ? Config.colours.subtext : Config.colours.text
                             font.family: Config.font.family
                             font.pointSize: Config.font.size
                             font.bold: row.kind === "calc" && row.modelData.result !== ""
@@ -318,22 +480,9 @@ Item {
 
                         Text {
                             Layout.fillWidth: true
-                            text: {
-                                switch (row.kind) {
-                                case "app":
-                                    return row.modelData.app.genericName || row.modelData.app.comment;
-                                case "room": {
-                                    const b = Matrix.bridge(row.modelData.room);
-                                    return b ? `Matrix · ${({ discord: "Discord", signal: "Signal", telegram: "Telegram", whatsapp: "WhatsApp" })[b]}` : "Matrix";
-                                }
-                                case "calc":
-                                    return row.modelData.result ? "Enter copies" : "";
-                                default:
-                                    return row.modelData.command ? "Enter runs · Shift+Enter in a terminal" : "";
-                                }
-                            }
-                            horizontalAlignment: row.kind === "app" || row.kind === "room" ? Text.AlignLeft : Text.AlignRight
-                            elide: Text.ElideRight
+                            text: root.detail(row.modelData)
+                            horizontalAlignment: ["calc", "run", "url"].includes(row.kind) ? Text.AlignRight : Text.AlignLeft
+                            elide: row.kind === "file" ? Text.ElideMiddle : Text.ElideRight
                             color: Config.colours.subtext
                             font.family: Config.font.family
                             font.pointSize: Config.font.small
@@ -346,8 +495,19 @@ Item {
                 Layout.fillWidth: true
                 Layout.leftMargin: 14
                 visible: list.count === 0
-                text: "Nothing matches"
+                text: root.mode === "snippet" ? "No snippets yet: type ;name: text to save one" : root.mode === "file" ? "No recent files match" : "Nothing matches"
                 color: Config.colours.subtext
+                font.family: Config.font.family
+                font.pointSize: Config.font.small
+            }
+
+            // What the first characters do, while nothing is typed.
+            Text {
+                Layout.fillWidth: true
+                visible: root.query === ""
+                horizontalAlignment: Text.AlignHCenter
+                text: "= calc   > run   ? web   : emoji   ; snippets   / files"
+                color: Config.colours.muted
                 font.family: Config.font.family
                 font.pointSize: Config.font.small
             }

@@ -29,7 +29,12 @@ let
     cp -r ${self.packages.${pkgs.stdenv.hostPlatform.system}.default} $out
     chmod -R u+w $out
     cp ${
-      pkgs.writeText "settings.json" (builtins.toJSON { inherit (cfg) dragToOpen; })
+      pkgs.writeText "settings.json" (
+        builtins.toJSON {
+          inherit (cfg) dragToOpen;
+          launcher.search = cfg.launcher.searchEngine;
+        }
+      )
     } $out/settings.json
     ${lib.optionalString (cfg.airdrop.name != null) ''
       cp ${pkgs.writeText "airdrop.json" (builtins.toJSON { inherit (cfg.airdrop) name; })} $out/airdrop.json
@@ -99,6 +104,12 @@ in
             assertion = cfg.navidrome.url != "";
             message = "services.moqs.navidrome.url must be set.";
           }
+          ++ [
+            {
+              assertion = lib.hasInfix "%s" cfg.launcher.searchEngine;
+              message = "services.moqs.launcher.searchEngine must contain %s, where the query goes.";
+            }
+          ]
           ++ lib.optional cfg.hass.enable {
             assertion = (cfg.hass.tokenFile == null) != (cfg.hass.tokenCommand == null);
             message = "services.moqs.hass: set exactly one of tokenFile or tokenCommand.";

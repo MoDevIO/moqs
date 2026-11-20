@@ -28,6 +28,23 @@ Item {
     property string query
     // The room whose name is being edited (right click), or "".
     property string renaming
+    // Network the room list is narrowed to: "discord", "signal", "telegram", "whatsapp",
+    // "matrix" (rooms that aren't bridged), or "" for all.
+    property string network
+
+    // The networks among the rooms, in a fixed order, each with whether it has unread rooms.
+    readonly property var networks: {
+        Matrix.version;
+        const seen = {};
+        for (const r of Matrix.findRooms("")) {
+            const b = Matrix.bridge(r) || "matrix";
+            seen[b] = (seen[b] ?? false) || (r.meta.unread_messages ?? 0) > 0;
+        }
+        const order = ["discord", "signal", "telegram", "whatsapp", "matrix"];
+        // Only worth showing when there's more than one kind of room.
+        const found = order.filter(n => n in seen);
+        return found.length > 1 ? found.map(n => ({ id: n, unread: seen[n] })) : [];
+    }
 
     readonly property real targetWidth: open ? Config.matrix.width : 0
     readonly property real targetHeight: open ? Config.matrix.height : 0
@@ -341,6 +358,93 @@ Item {
                 }
             }
 
+            // Narrows the rooms to one network; the chosen one again shows all. Icons only,
+            // with the name on the chosen one (and while pointed at); a dot marks networks
+            // with unread rooms.
+            Flow {
+                Layout.fillWidth: true
+                Layout.leftMargin: Config.controlCentre.padding
+                Layout.rightMargin: Config.controlCentre.padding
+                visible: Matrix.configured && !root.roomId && root.networks.length > 0
+                spacing: 6
+
+                Repeater {
+                    model: root.networks
+
+                    Rectangle {
+                        id: chip
+
+                        required property var modelData
+                        readonly property bool active: root.network === modelData.id
+                        readonly property bool labelled: active || chipArea.containsMouse
+
+                        implicitWidth: chipRow.implicitWidth + (labelled ? 20 : 16)
+                        implicitHeight: 26
+                        radius: height / 2
+                        color: chipArea.containsMouse ? Config.colours.buttonHover : Config.colours.button
+                        border.width: active ? 1.5 : 0
+                        border.color: Config.colours.text
+
+                        Row {
+                            id: chipRow
+
+                            anchors.centerIn: parent
+                            spacing: 6
+
+                            Text {
+                                anchors.verticalCenter: parent.verticalCenter
+                                visible: chip.modelData.id === "matrix"
+                                text: "\u{F0628}"
+                                color: chip.active ? Config.colours.text : Config.colours.subtext
+                                font.family: Config.font.family
+                                font.pointSize: Config.font.small
+                            }
+
+                            Image {
+                                anchors.verticalCenter: parent.verticalCenter
+                                visible: chip.modelData.id !== "matrix"
+                                width: 12
+                                height: 12
+                                source: visible ? Quickshell.shellPath(`assets/bridges/${chip.modelData.id}.svg`) : ""
+                                sourceSize: Qt.size(24, 24)
+                                opacity: chip.active ? 1 : 0.7
+                            }
+
+                            Text {
+                                anchors.verticalCenter: parent.verticalCenter
+                                visible: chip.labelled
+                                text: ({ discord: "Discord", signal: "Signal", telegram: "Telegram", whatsapp: "WhatsApp", matrix: "Matrix" })[chip.modelData.id]
+                                color: chip.active ? Config.colours.text : Config.colours.subtext
+                                font.family: Config.font.family
+                                font.pointSize: Config.font.small
+                                font.bold: chip.active
+                            }
+
+                            Rectangle {
+                                anchors.verticalCenter: parent.verticalCenter
+                                visible: chip.modelData.unread
+                                width: 6
+                                height: 6
+                                radius: 3
+                                color: Config.colours.text
+                            }
+                        }
+
+                        MouseArea {
+                            id: chipArea
+
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                root.network = chip.active ? "" : chip.modelData.id;
+                                rooms.positionViewAtBeginning();
+                            }
+                        }
+                    }
+                }
+            }
+
             // Invites, above the rooms, each with Accept and Deny.
             Column {
                 Layout.fillWidth: true
@@ -436,7 +540,9 @@ Item {
                 boundsBehavior: Flickable.StopAtBounds
                 model: {
                     Matrix.version;
-                    return root.query ? Matrix.findRooms(root.query) : Matrix.roomList;
+                    if (!root.network)
+                        return root.query ? Matrix.findRooms(root.query) : Matrix.roomList;
+                    return Matrix.findRooms(root.query).filter(r => (Matrix.bridge(r) || "matrix") === root.network).slice(0, 80);
                 }
 
                 header: Text {
