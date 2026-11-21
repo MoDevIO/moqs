@@ -188,6 +188,7 @@ Singleton {
 
     function show(): void {
         screen = Hyprland.focusedMonitor?.name ?? "";
+        Lock.menuOpen = false;
         open = true;
     }
 

@@ -21,6 +21,7 @@ A minimal [Quickshell](https://quickshell.org) shell for Hyprland. Black frame a
 - `qs ipc call session lock` locks the session: the time, a password field, the weather, the next lesson, homework due soon or the next exam, and what's playing (with its controls). Only your password unlocks it; there's no IPC unlock.
 - A pane grows out of the bar over the screen first, like the launcher, and shrinks back into it after unlocking. `qs ipc call session lockNow` locks at once, without it: use that before suspending, where there may be no time for the animation.
 - Bind it to a key, or let hypridle use it: `general { lock_cmd = qs ipc call session lock; before_sleep_cmd = qs ipc call session lockNow }`.
+- `qs ipc call session menu` opens the session menu, a pane out of the bar like the launcher: lock, suspend, log out, restart and power off. Arrows or Tab move, Enter or the first letter picks (`o` for log out), Escape closes. Log out, restart and power off ask "Sure?" first: pick them twice. Bind it to a key, e.g. Super+Escape.
 - The password is checked through PAM with the `login` service; `lock.pamService` (or `"lock": { "pam": "swaylock" }` in `settings.json`) picks another.
 
 **Corners and panels**

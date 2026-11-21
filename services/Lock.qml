@@ -2,12 +2,14 @@ pragma Singleton
 
 import QtQuick
 import Quickshell
+import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Services.Pam
 
 // The session lock. Locked over IPC, e.g. from a key or hypridle's lock_cmd:
 //   qs ipc call session lock
 // lockNow skips the pane coming down over the screen first, for before_sleep_cmd.
+// qs ipc call session menu opens the session menu (lock, suspend, log out, restart, power off).
 // Only the user's password unlocks it, checked through PAM (the "login" service unless
 // settings.json says otherwise, see Settings.lockPam); there is deliberately no IPC unlock.
 Singleton {
@@ -50,6 +52,42 @@ Singleton {
             root.locked = true;
             root.closing = false;
         }
+    }
+
+    // The session menu, which grows out of the bar on the focused monitor and stays there.
+    property bool menuOpen
+    property string menuScreen
+
+    function toggleMenu(): void {
+        if (menuOpen) {
+            menuOpen = false;
+            return;
+        }
+        menuScreen = Hyprland.focusedMonitor?.name ?? "";
+        Launcher.open = false;
+        menuOpen = true;
+    }
+
+    // Visible on this screen's frame.
+    function menuOn(s: ShellScreen): bool {
+        return menuOpen && (menuScreen === "" || s.name === menuScreen);
+    }
+
+    // What the session menu's buttons do.
+    function run(action: string): void {
+        menuOpen = false;
+        if (action === "lock")
+            lock(false);
+        else if (action === "suspend")
+            // hypridle's before_sleep_cmd locks first, if set up.
+            Quickshell.execDetached(["systemctl", "suspend"]);
+        else if (action === "logout")
+            // Hyprland's Lua config takes hl.dsp.exit(), the older one plain exit.
+            Quickshell.execDetached(["sh", "-c", "case $(hyprctl dispatch 'hl.dsp.exit()') in ok*) ;; *) hyprctl dispatch exit ;; esac"]);
+        else if (action === "reboot")
+            Quickshell.execDetached(["systemctl", "reboot"]);
+        else if (action === "poweroff")
+            Quickshell.execDetached(["systemctl", "poweroff"]);
     }
 
     function unlock(password: string): void {
@@ -105,6 +143,9 @@ Singleton {
         // For before_sleep_cmd and the like: no animation, locked when this returns.
         function lockNow(): void {
             root.lock(true);
+        }
+        function menu(): void {
+            root.toggleMenu();
         }
         function isLocked(): bool {
             return root.locked;

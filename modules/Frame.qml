@@ -10,6 +10,7 @@ import qs.modules.launcher
 import qs.modules.matrix
 import qs.modules.music
 import qs.modules.notifications
+import qs.modules.session
 import qs.services
 
 // One frame per screen: the visible border plus invisible windows reserving space for it.
@@ -46,8 +47,8 @@ Scope {
         WlrLayershell.layer: WlrLayer.Top
         WlrLayershell.exclusionMode: ExclusionMode.Ignore
         // Lets text fields (Wi-Fi password, music search, messages, homework) take typing while their panel is open.
-        // A Matrix reply and the launcher take the keyboard outright, so their fields get it without a click.
-        WlrLayershell.keyboardFocus: matrix.replying || launcher.open ? WlrKeyboardFocus.Exclusive : cc.open || music.open || matrix.open || dash.open ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
+        // A Matrix reply, the launcher and the session menu take the keyboard outright, so their fields get it without a click.
+        WlrLayershell.keyboardFocus: matrix.replying || launcher.open || sessionMenu.open ? WlrKeyboardFocus.Exclusive : cc.open || music.open || matrix.open || dash.open ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
 
         anchors {
             top: true
@@ -58,9 +59,9 @@ Scope {
 
         // Only the border and panels take input; the interior passes clicks through. While a
         // panel is pulled out the whole screen does, so a quick pull can't leave the pointer
-        // outside the frame, where the drag would stop getting its moves. The launcher takes
-        // the whole screen too, so a click anywhere else closes it.
-        mask: dragging || launcher.open ? dragMask : frameMask
+        // outside the frame, where the drag would stop getting its moves. The launcher and the
+        // session menu take the whole screen too, so a click anywhere else closes them.
+        mask: dragging || launcher.open || sessionMenu.open ? dragMask : frameMask
 
         readonly property bool dragging: dash.dragging || notifs.dragging || music.dragging || matrix.dragging
 
@@ -93,6 +94,11 @@ Scope {
 
             Region {
                 item: launcher
+                intersection: Intersection.Subtract
+            }
+
+            Region {
+                item: sessionMenu
                 intersection: Intersection.Subtract
             }
 
@@ -192,11 +198,14 @@ Scope {
             }
         }
 
-        // While the launcher is open, a click anywhere outside it closes it.
+        // While the launcher or session menu is open, a click anywhere outside it closes it.
         MouseArea {
             anchors.fill: parent
-            visible: launcher.open
-            onPressed: Launcher.open = false
+            visible: launcher.open || sessionMenu.open
+            onPressed: {
+                Launcher.open = false;
+                Lock.menuOpen = false;
+            }
         }
 
         // Dragging the bottom border up pulls out the dashboard. The gap above it and the
@@ -289,6 +298,7 @@ Scope {
                 onClockClicked: {
                     Owly.closeSend();
                     Launcher.open = false;
+                    Lock.menuOpen = false;
                     cc.open = !cc.open;
                 }
             }
@@ -328,6 +338,21 @@ Scope {
                 anchors.horizontalCenter: parent.horizontalCenter
                 onClosed: Launcher.open = false
                 // The control centre and send panel share its spot.
+                onOpenChanged: if (open) {
+                    cc.open = false;
+                    Owly.closeSend();
+                }
+            }
+
+            SessionMenu {
+                id: sessionMenu
+
+                open: Lock.menuOn(root.modelData)
+                anchors.top: parent.top
+                anchors.topMargin: root.top
+                anchors.horizontalCenter: parent.horizontalCenter
+                onClosed: Lock.menuOpen = false
+                // It shares the launcher's spot.
                 onOpenChanged: if (open) {
                     cc.open = false;
                     Owly.closeSend();
