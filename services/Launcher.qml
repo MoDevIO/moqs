@@ -10,7 +10,8 @@ import Quickshell.Io
 // How often and when each app was started is kept in $XDG_STATE_HOME/moqs/launcher.json, so
 // the ones used most rank first. Snippets live next to it in snippets.txt, one per line as
 // "name: text" ("\n" for a line break). Recent files come from the list GTK apps share,
-// ~/.local/share/recently-used.xbel.
+// ~/.local/share/recently-used.xbel. "#" searches nixpkgs, from an index of `nix search
+// nixpkgs ^` kept in $XDG_CACHE_HOME/moqs/nixpkgs.json and rebuilt when it's three days old.
 Singleton {
     id: root
 
@@ -205,6 +206,135 @@ Singleton {
     }
 
     Component.onCompleted: Quickshell.execDetached(["mkdir", "-p", usagePath.replace(/\/[^\/]*$/, "")])
+
+    // nixpkgs, for "#": [[attr, pname, version, description, the four lower case]], loaded on
+    // first use.
+    property var nixpkgs: []
+    // "", "indexing", "ready" or "failed"
+    property string nixpkgsState
+    property string nixpkgsError
+    readonly property string nixpkgsPath: `${Quickshell.env("XDG_CACHE_HOME") || `${Quickshell.env("HOME")}/.cache`}/moqs/nixpkgs.json`
+
+    // Loads the index, building it first if it's missing or three days old. Fast when Nix's
+    // evaluation cache is warm; after a nixpkgs update the first build takes a minute or so.
+    function indexNixpkgs(): void {
+        if (nixpkgsState === "indexing" || indexer.running)
+            return;
+        if (nixpkgsState === "")
+            nixpkgsState = "indexing";
+        nixpkgsError = "";
+        indexer.running = true;
+    }
+
+    Process {
+        id: indexer
+
+        command: ["sh", "-c", `f=${JSON.stringify(root.nixpkgsPath)}
+mkdir -p "$(dirname "$f")"
+[ -n "$(find "$f" -mmin -4320 2>/dev/null)" ] && exit 0
+nix search nixpkgs ^ --json > "$f.tmp" 2>"$f.err" && mv "$f.tmp" "$f" && rm -f "$f.err" && exit 0
+grep -v '^evaluating' "$f.err" | tail -n 3 >&2
+rm -f "$f.tmp" "$f.err"
+exit 1`]
+
+        stderr: StdioCollector {
+            id: indexErrors
+        }
+
+        onExited: code => {
+            if (code !== 0 && root.nixpkgs.length === 0) {
+                root.nixpkgsState = "failed";
+                root.nixpkgsError = indexErrors.text.trim().split("\n").pop() || "nix search failed";
+                return;
+            }
+            nixpkgsFile.reload();
+        }
+    }
+
+    FileView {
+        id: nixpkgsFile
+
+        path: root.nixpkgsState ? root.nixpkgsPath : ""
+        printErrors: false
+        onLoaded: {
+            let data;
+            try {
+                data = JSON.parse(text());
+            } catch (e) {
+                return;
+            }
+            const out = [];
+            for (const key in data) {
+                const p = data[key];
+                const attr = key.replace(/^legacyPackages\.[^.]+\./, "");
+                const pname = p.pname ?? "";
+                const description = p.description ?? "";
+                out.push([attr, pname, p.version ?? "", description, attr.toLowerCase(), pname.toLowerCase(), description.toLowerCase(), attr.includes(".")]);
+            }
+            root.nixpkgs = out;
+            root.nixpkgsState = "ready";
+        }
+    }
+
+    // Packages matching q, best first: the name exactly, then starting with it, containing
+    // it, and last the description. Top-level packages before nested ones (python3Packages.x).
+    // The last search and what it matched. Its fields change in place, which doesn't notify,
+    // so the launcher's results (a binding calling searchNixpkgs) don't depend on it.
+    readonly property var lastNix: ({ q: "", matched: [] })
+    onNixpkgsChanged: {
+        lastNix.q = "";
+        lastNix.matched = [];
+    }
+
+    function searchNixpkgs(q: string, limit: int): var {
+        q = q.toLowerCase();
+        if (q.length < 2)
+            return [];
+        // A longer query only matches what the shorter one did, so narrow those down
+        // instead of going through all of nixpkgs again. Below three characters descriptions
+        // don't count, so that's where it starts.
+        const from = lastNix.q.length >= 3 && q.startsWith(lastNix.q) ? lastNix.matched : nixpkgs;
+        const matched = [];
+        const out = [];
+        for (const p of from) {
+            const attr = p[4];
+            const pname = p[5];
+            let sc = 0;
+            if (attr === q || pname === q)
+                sc = 100;
+            else if (attr.startsWith(q) || pname.startsWith(q))
+                sc = 80;
+            else if (attr.includes(q) || pname.includes(q))
+                sc = 60;
+            else if (q.length >= 3 && p[6].includes(q))
+                sc = 20;
+            if (!sc)
+                continue;
+            matched.push(p);
+            if (p[7])
+                sc -= 30;
+            out.push({ pkg: p, score: sc });
+        }
+        lastNix.q = q;
+        lastNix.matched = matched;
+        return out.sort((a, b) => b.score - a.score || a.pkg[0].length - b.pkg[0].length || a.pkg[0].localeCompare(b.pkg[0])).slice(0, limit);
+    }
+
+    // Starts a package with nix run, in a terminal or not. A notification says it's starting
+    // (the first start downloads it), and why if it fails within half a minute. Unfree
+    // packages are allowed: picking one is asking for it.
+    function runNix(attr: string, terminal: bool): void {
+        const ref = `nixpkgs#${attr}`;
+        if (terminal) {
+            Quickshell.execDetached([Quickshell.env("TERMINAL") || "kitty", "-e", "sh", "-c", `nix run ${JSON.stringify(ref)} || NIXPKGS_ALLOW_UNFREE=1 nix run --impure ${JSON.stringify(ref)}; exec "\${SHELL:-sh}"`]);
+            return;
+        }
+        Quickshell.execDetached(["sh", "-c", `notify-send -a moqs -i nix-snowflake "Starting $1" "From nixpkgs. The first start downloads it."
+start=$(date +%s)
+err=$(nix run "nixpkgs#$1" 2>&1 >/dev/null) && exit 0
+case "$err" in *unfree*) err=$(NIXPKGS_ALLOW_UNFREE=1 nix run --impure "nixpkgs#$1" 2>&1 >/dev/null) && exit 0 ;; esac
+[ $(( $(date +%s) - start )) -lt 30 ] && notify-send -a moqs -i dialog-error "Couldn't start $1" "$(printf '%s' "$err" | grep -v '^warning' | tail -n 3)"`, "sh", attr]);
+    }
 
     FileView {
         path: Quickshell.shellPath("assets/emoji.json")

@@ -14,7 +14,7 @@ import qs.services
 //   = calculate (Enter copies)      > run a command (Shift+Enter in a terminal)
 //   ? search the web or open a URL  : find an emoji (Enter copies)
 //   ; snippets (Enter copies; "name: text" saves one, Ctrl+Delete removes)
-//   / recent files
+//   / recent files                  # nixpkgs, started with nix run (Shift+Enter in a terminal)
 Item {
     id: root
 
@@ -49,8 +49,22 @@ Item {
 
     readonly property string query: search.text.trim()
     // "apps", "calc" or "run", from the first character.
-    readonly property var prefixes: ({ "=": "calc", ">": "run", "?": "web", ":": "emoji", ";": "snippet", "/": "file" })
+    readonly property var prefixes: ({ "=": "calc", ">": "run", "?": "web", ":": "emoji", ";": "snippet", "/": "file", "#": "nix" })
     readonly property string mode: prefixes[query.charAt(0)] ?? "apps"
+    // "#" loads (and, if it's old, rebuilds) the nixpkgs index. Searching its 100 000-odd
+    // packages waits for a pause in typing, so keys don't lag.
+    onModeChanged: if (mode === "nix")
+        Launcher.indexNixpkgs()
+    onRestChanged: if (mode === "nix")
+        nixTimer.restart()
+    property string nixQuery
+
+    Timer {
+        id: nixTimer
+
+        interval: 120
+        onTriggered: root.nixQuery = root.rest.toLowerCase()
+    }
     // The query without its mode character.
     readonly property string rest: mode === "apps" ? query : query.slice(1).trim()
 
@@ -118,6 +132,14 @@ Item {
         }
         case "file":
             return files(q, 60, 0);
+        case "nix": {
+            if (Launcher.nixpkgsState !== "ready")
+                return [{ kind: "nixinfo" }];
+            if (nixQuery.length < 2)
+                return [{ kind: "nixinfo" }];
+            const found = Launcher.searchNixpkgs(nixQuery, 50);
+            return found.length ? found.map(x => ({ kind: "nix", pkg: x.pkg })) : [{ kind: "nixinfo" }];
+        }
         }
 
         Launcher.usage;
@@ -200,6 +222,11 @@ Item {
             Launcher.addSnippet(item.name, item.text);
             search.text = ";";
             return;
+        case "nix":
+            Launcher.runNix(item.pkg[0], terminal);
+            break;
+        case "nixinfo":
+            return;
         }
         root.closed();
     }
@@ -227,6 +254,14 @@ Item {
             return item.snippet.name;
         case "save":
             return `Save snippet "${item.name}"`;
+        case "nix":
+            return item.pkg[0];
+        case "nixinfo":
+            if (Launcher.nixpkgsState === "failed")
+                return "Couldn't index nixpkgs";
+            if (Launcher.nixpkgsState !== "ready")
+                return "Indexing nixpkgs…";
+            return rest.length < 2 ? "Type a package name" : "No package found";
         }
         return "";
     }
@@ -255,12 +290,20 @@ Item {
             return item.snippet.text.replace(/\n/g, " ⏎ ");
         case "save":
             return item.text;
+        case "nix":
+            return [item.pkg[2], item.pkg[3]].filter(x => x).join(" · ");
+        case "nixinfo":
+            if (Launcher.nixpkgsState === "failed")
+                return Launcher.nixpkgsError;
+            if (Launcher.nixpkgsState !== "ready")
+                return "The first time after a nixpkgs update takes a minute";
+            return rest.length < 2 ? "Enter starts it with nix run · Shift+Enter in a terminal" : "";
         }
         return "";
     }
 
     // Glyph for rows without an app icon, avatar or emoji.
-    readonly property var glyphs: ({ calc: "\u{F00EC}", run: "\u{F018D}", web: "\u{F0349}", url: "\u{F059F}", snippet: "\u{F09ED}", save: "\u{F0415}" })
+    readonly property var glyphs: ({ calc: "\u{F00EC}", run: "\u{F018D}", web: "\u{F0349}", url: "\u{F059F}", snippet: "\u{F09ED}", save: "\u{F0415}", nix: "\u{F1105}", nixinfo: "\u{F1105}" })
 
     readonly property int rowHeight: Config.launcher.row
     readonly property real targetWidth: open ? Config.launcher.width : Config.launcher.seed
@@ -467,7 +510,7 @@ Item {
                         }
 
                         Text {
-                            readonly property bool placeholder: (row.kind === "calc" && !row.modelData.result) || (row.kind === "run" && !row.modelData.command) || (row.kind === "web" && !row.modelData.text)
+                            readonly property bool placeholder: (row.kind === "calc" && !row.modelData.result) || (row.kind === "run" && !row.modelData.command) || (row.kind === "web" && !row.modelData.text) || row.kind === "nixinfo"
 
                             Layout.maximumWidth: list.width * 0.6
                             text: root.title(row.modelData)
@@ -506,7 +549,7 @@ Item {
                 Layout.fillWidth: true
                 visible: root.query === ""
                 horizontalAlignment: Text.AlignHCenter
-                text: "= calc   > run   ? web   : emoji   ; snippets   / files"
+                text: "= calc   > run   ? web   : emoji   ; snippets   / files   # nixpkgs"
                 color: Config.colours.muted
                 font.family: Config.font.family
                 font.pointSize: Config.font.small
