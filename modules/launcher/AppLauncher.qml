@@ -53,8 +53,10 @@ Item {
     readonly property string mode: prefixes[query.charAt(0)] ?? "apps"
     // "#" loads (and, if it's old, rebuilds) the nixpkgs index. Searching its 100 000-odd
     // packages waits for a pause in typing, so keys don't lag.
-    onModeChanged: if (mode === "nix")
-        Launcher.indexNixpkgs()
+    onModeChanged: if (mode === "nix") {
+        Launcher.indexNixpkgs();
+        Launcher.checkNixCached();
+    }
     onRestChanged: if (mode === "nix")
         nixTimer.restart()
     property string nixQuery
@@ -133,6 +135,12 @@ Item {
         case "file":
             return files(q, 60, 0);
         case "nix": {
+            // Nothing typed: the packages still in the store, which start right away.
+            if (rest === "") {
+                Launcher.nixpkgs;
+                const cached = Launcher.nixCached.map(a => ({ kind: "nix", pkg: Launcher.nixPackage(a), cached: true }));
+                return cached.length ? cached : [{ kind: "nixinfo" }];
+            }
             if (Launcher.nixpkgsState !== "ready")
                 return [{ kind: "nixinfo" }];
             if (nixQuery.length < 2)
@@ -259,9 +267,9 @@ Item {
         case "nixinfo":
             if (Launcher.nixpkgsState === "failed")
                 return "Couldn't index nixpkgs";
-            if (Launcher.nixpkgsState !== "ready")
+            if (Launcher.nixpkgsState !== "ready" && rest !== "")
                 return "Indexing nixpkgs…";
-            return rest.length < 2 ? "Type a package name" : "No package found";
+            return rest === "" ? "Nothing started from nixpkgs is in the store" : rest.length < 2 ? "Type a package name" : "No package found";
         }
         return "";
     }
@@ -291,10 +299,12 @@ Item {
         case "save":
             return item.text;
         case "nix":
-            return [item.pkg[2], item.pkg[3]].filter(x => x).join(" · ");
+            return [item.cached ? "In the store" : "", item.pkg[2], item.pkg[3]].filter(x => x).join(" · ");
         case "nixinfo":
             if (Launcher.nixpkgsState === "failed")
                 return Launcher.nixpkgsError;
+            if (rest === "")
+                return "Type a package name to search nixpkgs";
             if (Launcher.nixpkgsState !== "ready")
                 return "The first time after a nixpkgs update takes a minute";
             return rest.length < 2 ? "Enter starts it with nix run · Shift+Enter in a terminal" : "";

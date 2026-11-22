@@ -320,20 +320,56 @@ exit 1`]
         return out.sort((a, b) => b.score - a.score || a.pkg[0].length - b.pkg[0].length || a.pkg[0].localeCompare(b.pkg[0])).slice(0, limit);
     }
 
+    // Packages started with "#" whose store path is still there (the garbage collector
+    // hasn't removed them), so they start without downloading: attrs, last started first.
+    // Each start is recorded in nix-runs.tsv as "attr<TAB>store path<TAB>time".
+    property var nixCached: []
+    readonly property string nixRunsPath: `${stateDir}/nix-runs.tsv`
+
+    function checkNixCached(): void {
+        if (!cachedCheck.running)
+            cachedCheck.running = true;
+    }
+
+    Process {
+        id: cachedCheck
+
+        // Keeps the newest start of each package whose store path is still there (dropping
+        // what the garbage collector removed), newest first, and prints that.
+        command: ["sh", "-c", `[ -f "$1" ] || exit 0
+while IFS="$(printf '\t')" read -r a p t; do
+    [ -n "$p" ] && [ -e "$p" ] && printf '%s\t%s\t%s\n' "$a" "$p" "$t"
+done < "$1" | sort -t "$(printf '\t')" -k3,3nr | awk -F '\t' '!seen[$1]++' > "$1.tmp" && mv "$1.tmp" "$1"
+cat "$1"`, "sh", root.nixRunsPath]
+
+        stdout: StdioCollector {
+            onStreamFinished: root.nixCached = text.split("\n").map(l => l.split("\t")[0]).filter(a => a)
+        }
+    }
+
+    // A package's entry in the index, or a bare one while the index isn't loaded.
+    function nixPackage(attr: string): var {
+        return nixpkgs.find(p => p[0] === attr) ?? [attr, "", "", "", attr.toLowerCase(), "", "", attr.includes(".")];
+    }
+
     // Starts a package with nix run, in a terminal or not. A notification says it's starting
     // (the first start downloads it), and why if it fails within half a minute. Unfree
-    // packages are allowed: picking one is asking for it.
+    // packages are allowed: picking one is asking for it. Its store path is recorded on the
+    // side, for the list of cached packages.
     function runNix(attr: string, terminal: bool): void {
-        const ref = `nixpkgs#${attr}`;
+        const record = `( p=$(nix eval --raw "nixpkgs#$1.outPath" 2>/dev/null || NIXPKGS_ALLOW_UNFREE=1 nix eval --impure --raw "nixpkgs#$1.outPath" 2>/dev/null) && printf '%s\t%s\t%s\n' "$1" "$p" "$(date +%s)" >> "$2" ) &`;
         if (terminal) {
-            Quickshell.execDetached([Quickshell.env("TERMINAL") || "kitty", "-e", "sh", "-c", `nix run ${JSON.stringify(ref)} || NIXPKGS_ALLOW_UNFREE=1 nix run --impure ${JSON.stringify(ref)}; exec "\${SHELL:-sh}"`]);
+            Quickshell.execDetached([Quickshell.env("TERMINAL") || "kitty", "-e", "sh", "-c", `${record}
+nix run "nixpkgs#$1" || NIXPKGS_ALLOW_UNFREE=1 nix run --impure "nixpkgs#$1"
+exec "\${SHELL:-sh}"`, "sh", attr, nixRunsPath]);
             return;
         }
-        Quickshell.execDetached(["sh", "-c", `notify-send -a moqs -i nix-snowflake "Starting $1" "From nixpkgs. The first start downloads it."
+        Quickshell.execDetached(["sh", "-c", `${record}
+notify-send -a moqs -i nix-snowflake "Starting $1" "From nixpkgs. The first start downloads it."
 start=$(date +%s)
 err=$(nix run "nixpkgs#$1" 2>&1 >/dev/null) && exit 0
 case "$err" in *unfree*) err=$(NIXPKGS_ALLOW_UNFREE=1 nix run --impure "nixpkgs#$1" 2>&1 >/dev/null) && exit 0 ;; esac
-[ $(( $(date +%s) - start )) -lt 30 ] && notify-send -a moqs -i dialog-error "Couldn't start $1" "$(printf '%s' "$err" | grep -v '^warning' | tail -n 3)"`, "sh", attr]);
+[ $(( $(date +%s) - start )) -lt 30 ] && notify-send -a moqs -i dialog-error "Couldn't start $1" "$(printf '%s' "$err" | grep -v '^warning' | tail -n 3)"`, "sh", attr, nixRunsPath]);
     }
 
     FileView {
