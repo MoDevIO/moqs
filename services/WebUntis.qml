@@ -16,6 +16,10 @@ import qs.config
 // Requests go through curl with the credentials and session cookie on stdin (curl -K -),
 // which keeps them out of the process list. The homework endpoint needs the session cookie,
 // which XMLHttpRequest isn't allowed to set.
+//
+// The upcoming days' lessons as last seen are kept in $XDG_STATE_HOME/moqs/webuntis-seen.json,
+// so changes (cancelled, added, moved, new room or teacher) are notified even when they were
+// made while the shell wasn't running.
 Singleton {
     id: root
 
@@ -62,6 +66,13 @@ Singleton {
     // learning for WebUntis exams is, by key. Progress is 0..100.
     property var localExams: []
     property var examProgress: ({})
+
+    // The lessons last seen of the days from today on: { date: [{ start, end, subject, ... }] }.
+    property var seen: ({})
+    property bool seenLoaded
+    // Fetched days waiting for the seen file to be read: [{ lessons, start, end }].
+    property var seenPending: []
+    readonly property string seenPath: `${Quickshell.env("XDG_STATE_HOME") || `${Quickshell.env("HOME")}/.local/state`}/moqs/webuntis-seen.json`
 
     // Own and WebUntis exams from today on, soonest first.
     readonly property var exams: [
@@ -325,7 +336,9 @@ Singleton {
                 roomFields: ["name"]
             }
         }, res => {
-            lessons = lessons.filter(l => l.date < start || l.date > end).concat(merge(res ?? [])).sort((a, b) => a.date - b.date || a.start - b.start);
+            const fetched = merge(res ?? []);
+            noteChanges(fetched, start, end);
+            lessons = lessons.filter(l => l.date < start || l.date > end).concat(fetched).sort((a, b) => a.date - b.date || a.start - b.start);
             const marks = Object.assign({}, loaded);
             for (let d = start; d <= end; d = addDays(d, 1))
                 marks[d] = true;
@@ -430,6 +443,92 @@ Singleton {
                 out.push(l);
         }
         return out;
+    }
+
+    // Compares fetched lessons of start..end with those last seen, notifies about the days
+    // that changed and remembers the new ones. Only days from today to Config.webuntis.days
+    // ahead are kept; a day not seen before (just come into range) isn't notified about.
+    function noteChanges(fetched: var, start: int, end: int): void {
+        if (!seenLoaded) {
+            seenPending = [...seenPending, { lessons: fetched, start, end }];
+            return;
+        }
+        const last = addDays(today, Config.webuntis.days);
+        const next = {};
+        for (const d in seen)
+            if (Number(d) >= today)
+                next[d] = seen[d];
+        const snap = l => ({ start: l.start, end: l.end, subject: l.subject, teachers: l.teachers, rooms: l.rooms, text: l.text, cancelled: l.cancelled });
+        for (let d = Math.max(start, today); d <= Math.min(end, last); d = addDays(d, 1)) {
+            const now = fetched.filter(l => l.date === d).map(snap);
+            if (seen[d]) {
+                const lines = describeChanges(seen[d], now, d);
+                if (lines.length)
+                    Quickshell.execDetached(["notify-send", "-a", "WebUntis", "-i", "x-office-calendar", `Timetable changed: ${dayName(d)}`, lines.join("\n")]);
+            }
+            next[d] = now;
+        }
+        seen = next;
+        seenFile.setText(JSON.stringify(next) + "\n");
+    }
+
+    // What changed between two versions of a day's lessons, one line each, by time. Lessons
+    // of today that are over don't count.
+    function describeChanges(before: var, after: var, date: int): var {
+        const upcoming = l => date !== today || l.end > time;
+        const old = before.filter(upcoming);
+        const cur = after.filter(upcoming);
+        const pairs = [];
+        const take = (same) => {
+            for (const n of cur.slice()) {
+                const i = old.findIndex(o => same(o, n));
+                if (i < 0)
+                    continue;
+                pairs.push([old.splice(i, 1)[0], n]);
+                cur.splice(cur.indexOf(n), 1);
+            }
+        };
+        // The same lesson first, then the same subject at another time.
+        take((o, n) => o.start === n.start && o.end === n.end && o.subject === n.subject && o.cancelled === n.cancelled);
+        take((o, n) => o.start === n.start && o.end === n.end && o.subject === n.subject);
+        take((o, n) => o.subject === n.subject);
+        const at = l => `${l.subject} ${clock(l.start)}`;
+        const out = [];
+        const add = (when, line) => out.push({ when, line });
+        for (const [o, n] of pairs) {
+            if (!o.cancelled && n.cancelled) {
+                add(n.start, `${at(n)} cancelled`);
+                continue;
+            }
+            if (o.cancelled && !n.cancelled)
+                add(n.start, `${at(n)} takes place again`);
+            else if (n.cancelled)
+                continue;
+            if (o.start !== n.start || o.end !== n.end)
+                add(n.start, `${n.subject} moved to ${clock(n.start)}–${clock(n.end)} (was ${clock(o.start)})`);
+            if (o.rooms !== n.rooms)
+                add(n.start, `${at(n)} in ${n.rooms || "no room"}${o.rooms ? ` (was ${o.rooms})` : ""}`);
+            if (o.teachers !== n.teachers)
+                add(n.start, `${at(n)} with ${n.teachers || "no teacher"}${o.teachers ? ` (was ${o.teachers})` : ""}`);
+            if (o.text !== n.text && n.text)
+                add(n.start, `${at(n)}: ${n.text}`);
+        }
+        for (const n of cur)
+            add(n.start, n.cancelled ? `${at(n)} cancelled` : `${at(n)}–${clock(n.end)} added${n.rooms ? ` in ${n.rooms}` : ""}${n.teachers ? ` with ${n.teachers}` : ""}`);
+        for (const o of old)
+            if (!o.cancelled)
+                add(o.start, `${at(o)} dropped`);
+        return out.sort((a, b) => a.when - b.when).map(x => x.line);
+    }
+
+    // The seen file is read (or there is none yet): compare what was fetched meanwhile.
+    function seenReady(): void {
+        if (seenLoaded)
+            return;
+        seenLoaded = true;
+        for (const p of seenPending)
+            noteChanges(p.lessons, p.start, p.end);
+        seenPending = [];
     }
 
     function quote(s: string): string {
@@ -619,6 +718,7 @@ Singleton {
     }
 
     onConfiguredChanged: if (configured) refresh()
+    Component.onCompleted: Quickshell.execDetached(["mkdir", "-p", seenPath.replace(/\/[^\/]*$/, "")])
     onHomeworkPathChanged: Quickshell.execDetached(["mkdir", "-p", homeworkPath.replace(/\/[^\/]*$/, "")])
 
     Timer {
@@ -642,6 +742,20 @@ Singleton {
         printErrors: false
         onFileChanged: reload()
         onLoaded: root.parseHomework(text())
+    }
+
+    FileView {
+        id: seenFile
+
+        path: root.seenPath
+        printErrors: false
+        onLoaded: {
+            try {
+                root.seen = JSON.parse(text()) ?? {};
+            } catch (e) {}
+            root.seenReady();
+        }
+        onLoadFailed: root.seenReady()
     }
 
     Secret {
