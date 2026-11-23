@@ -58,111 +58,129 @@ Card {
         clip: true
         spacing: 4
         boundsBehavior: Flickable.StopAtBounds
-        model: WebUntis.shownLessons
+        model: WebUntis.shownRows
 
-        delegate: Rectangle {
-            id: lesson
+        // One row per start and end time; lessons sharing both sit side by side.
+        delegate: Row {
+            id: lessonRow
 
             required property var modelData
-            readonly property bool current: modelData.date === WebUntis.today && WebUntis.time >= modelData.start && WebUntis.time < modelData.end && !modelData.cancelled
-            readonly property color fg: current ? Config.colours.activeText : modelData.cancelled ? Config.colours.red : Config.colours.text
-            readonly property color dim: current ? Qt.alpha(Config.colours.activeText, 0.6) : Config.colours.subtext
-            readonly property var homework: modelData.cancelled ? [] : WebUntis.homeworkFor(modelData)
+
+            // Lessons in a row all take the height of the tallest.
+            readonly property real tallest: Math.max(0, ...Array.from(children).map(c => c.implicitHeight))
 
             width: list.width
-            implicitHeight: row.implicitHeight + 16
-            radius: 14
-            color: current ? Config.colours.active : Config.colours.button
+            spacing: 4
 
-            RowLayout {
-                id: row
+            Repeater {
+                model: lessonRow.modelData
 
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.leftMargin: 12
-                anchors.rightMargin: 12
-                spacing: 12
+                delegate: Rectangle {
+                    id: lesson
 
-                ColumnLayout {
-                    spacing: 0
+                    required property var modelData
+                    readonly property bool current: modelData.date === WebUntis.today && WebUntis.time >= modelData.start && WebUntis.time < modelData.end && !modelData.cancelled
+                    readonly property color fg: current ? Config.colours.activeText : modelData.cancelled ? Config.colours.red : Config.colours.text
+                    readonly property color dim: current ? Qt.alpha(Config.colours.activeText, 0.6) : Config.colours.subtext
+                    readonly property var homework: modelData.cancelled ? [] : WebUntis.homeworkFor(modelData)
 
-                    Text {
-                        text: WebUntis.clock(lesson.modelData.start)
-                        color: lesson.fg
-                        font.family: Config.font.family
-                        font.pointSize: Config.font.small
-                    }
-
-                    Text {
-                        text: WebUntis.clock(lesson.modelData.end)
-                        color: lesson.dim
-                        font.family: Config.font.family
-                        font.pointSize: Config.font.small
-                    }
-                }
-
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 0
+                    width: (lessonRow.width - lessonRow.spacing * (lessonRow.modelData.length - 1)) / lessonRow.modelData.length
+                    height: lessonRow.tallest
+                    implicitHeight: row.implicitHeight + 16
+                    radius: 14
+                    color: current ? Config.colours.active : Config.colours.button
 
                     RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 8
+                        id: row
 
-                        Text {
-                            Layout.fillWidth: true
-                            text: lesson.modelData.subject
-                            elide: Text.ElideRight
-                            color: lesson.fg
-                            font.family: Config.font.family
-                            font.pointSize: Config.font.small
-                            font.bold: true
-                            font.strikeout: lesson.modelData.cancelled
-                        }
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: 12
+                        anchors.rightMargin: 12
+                        spacing: 12
 
-                        Text {
-                            visible: lesson.homework.length > 0
-                            text: "\u{F05DA}"
-                            color: lesson.fg
-                            font.family: Config.font.family
-                            font.pointSize: Config.font.small
+                        ColumnLayout {
+                            spacing: 0
 
-                            HoverHandler {
-                                id: homeworkHover
+                            Text {
+                                text: WebUntis.clock(lesson.modelData.start)
+                                color: lesson.fg
+                                font.family: Config.font.family
+                                font.pointSize: Config.font.small
+                            }
+
+                            Text {
+                                text: WebUntis.clock(lesson.modelData.end)
+                                color: lesson.dim
+                                font.family: Config.font.family
+                                font.pointSize: Config.font.small
                             }
                         }
 
-                        Text {
-                            visible: lesson.modelData.cancelled || lesson.modelData.changed
-                            text: lesson.modelData.cancelled ? "Cancelled" : "Changed"
-                            color: lesson.modelData.cancelled ? Config.colours.red : lesson.dim
-                            font.family: Config.font.family
-                            font.pointSize: Config.font.small
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 0
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 8
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: lesson.modelData.subject
+                                    elide: Text.ElideRight
+                                    color: lesson.fg
+                                    font.family: Config.font.family
+                                    font.pointSize: Config.font.small
+                                    font.bold: true
+                                    font.strikeout: lesson.modelData.cancelled
+                                }
+
+                                Text {
+                                    visible: lesson.homework.length > 0
+                                    text: "\u{F05DA}"
+                                    color: lesson.fg
+                                    font.family: Config.font.family
+                                    font.pointSize: Config.font.small
+
+                                    HoverHandler {
+                                        id: homeworkHover
+                                    }
+                                }
+
+                                Text {
+                                    visible: lesson.modelData.cancelled || lesson.modelData.changed
+                                    text: lesson.modelData.cancelled ? "Cancelled" : "Changed"
+                                    color: lesson.modelData.cancelled ? Config.colours.red : lesson.dim
+                                    font.family: Config.font.family
+                                    font.pointSize: Config.font.small
+                                }
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                visible: text !== ""
+                                text: homeworkHover.hovered ? lesson.homework.map(h => h.text || "Homework").join(" · ") : [lesson.modelData.teachers, lesson.modelData.rooms].filter(x => x).join(" · ")
+                                elide: Text.ElideRight
+                                color: lesson.dim
+                                font.family: Config.font.family
+                                font.pointSize: Config.font.small
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                visible: text !== ""
+                                text: lesson.modelData.text
+                                wrapMode: Text.Wrap
+                                maximumLineCount: 2
+                                elide: Text.ElideRight
+                                color: lesson.dim
+                                font.family: Config.font.family
+                                font.pointSize: Config.font.small
+                                font.italic: true
+                            }
                         }
-                    }
-
-                    Text {
-                        Layout.fillWidth: true
-                        visible: text !== ""
-                        text: homeworkHover.hovered ? lesson.homework.map(h => h.text || "Homework").join(" · ") : [lesson.modelData.teachers, lesson.modelData.rooms].filter(x => x).join(" · ")
-                        elide: Text.ElideRight
-                        color: lesson.dim
-                        font.family: Config.font.family
-                        font.pointSize: Config.font.small
-                    }
-
-                    Text {
-                        Layout.fillWidth: true
-                        visible: text !== ""
-                        text: lesson.modelData.text
-                        wrapMode: Text.Wrap
-                        maximumLineCount: 2
-                        elide: Text.ElideRight
-                        color: lesson.dim
-                        font.family: Config.font.family
-                        font.pointSize: Config.font.small
-                        font.italic: true
                     }
                 }
             }

@@ -86,6 +86,19 @@ Singleton {
     property int selectedDate: 0
     readonly property int viewDate: selectedDate || shownDate
     readonly property var shownLessons: lessons.filter(l => l.date === viewDate)
+    // shownLessons in rows: lessons with exactly the same start and end (a cancelled lesson
+    // and its replacement, say) share a row.
+    readonly property var shownRows: {
+        const rows = [];
+        for (const l of shownLessons) {
+            const row = rows.find(r => r[0].start === l.start && r[0].end === l.end);
+            if (row)
+                row.push(l);
+            else
+                rows.push([l]);
+        }
+        return rows;
+    }
 
     // Rooms whose lessons count as cancelled, lower case.
     readonly property var cancelledRooms: Array.from(settings.cancelledRooms ?? []).map(r => String(r).toLowerCase())
@@ -392,7 +405,8 @@ Singleton {
     }
 
     // Lessons with the same details, one right after the other (up to a break of
-    // Config.webuntis.mergeGap minutes), become one long lesson.
+    // Config.webuntis.mergeGap minutes), become one long lesson, even when other lessons
+    // overlap them (a cancelled double lesson and its replacement).
     function merge(raw: var): var {
         const names = (list, field) => (list ?? []).map(x => x[field] || x.name || "").filter(x => x);
         const all = raw.map(l => ({
@@ -409,8 +423,8 @@ Singleton {
         const key = l => [l.subject, l.teachers, l.rooms, l.text, l.cancelled, l.changed].join("\u0001");
         const out = [];
         for (const l of all) {
-            const prev = out[out.length - 1];
-            if (prev && prev.date === l.date && key(prev) === key(l) && minutes(l.start) - minutes(prev.end) <= Config.webuntis.mergeGap)
+            const prev = out.slice().reverse().find(p => p.date === l.date && key(p) === key(l) && minutes(l.start) - minutes(p.end) <= Config.webuntis.mergeGap);
+            if (prev)
                 prev.end = Math.max(prev.end, l.end);
             else
                 out.push(l);
