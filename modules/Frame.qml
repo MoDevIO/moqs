@@ -10,6 +10,7 @@ import qs.modules.launcher
 import qs.modules.matrix
 import qs.modules.music
 import qs.modules.notifications
+import qs.modules.overview
 import qs.modules.session
 import qs.services
 
@@ -48,7 +49,7 @@ Scope {
         WlrLayershell.exclusionMode: ExclusionMode.Ignore
         // Lets text fields (Wi-Fi password, music search, messages, homework) take typing while their panel is open.
         // A Matrix reply, the launcher and the session menu take the keyboard outright, so their fields get it without a click.
-        WlrLayershell.keyboardFocus: matrix.replying || launcher.open || sessionMenu.open ? WlrKeyboardFocus.Exclusive : cc.open || music.open || matrix.open || dash.open ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
+        WlrLayershell.keyboardFocus: matrix.replying || launcher.open || sessionMenu.open || overview.open ? WlrKeyboardFocus.Exclusive : cc.open || music.open || matrix.open || dash.open ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
 
         anchors {
             top: true
@@ -61,7 +62,7 @@ Scope {
         // panel is pulled out the whole screen does, so a quick pull can't leave the pointer
         // outside the frame, where the drag would stop getting its moves. The launcher and the
         // session menu take the whole screen too, so a click anywhere else closes them.
-        mask: dragging || launcher.open || sessionMenu.open ? dragMask : frameMask
+        mask: dragging || launcher.open || sessionMenu.open || overview.open ? dragMask : frameMask
 
         readonly property bool dragging: dash.dragging || notifs.dragging || music.dragging || matrix.dragging
 
@@ -99,6 +100,11 @@ Scope {
 
             Region {
                 item: sessionMenu
+                intersection: Intersection.Subtract
+            }
+
+            Region {
+                item: overview
                 intersection: Intersection.Subtract
             }
 
@@ -198,13 +204,15 @@ Scope {
             }
         }
 
-        // While the launcher or session menu is open, a click anywhere outside it closes it.
+        // While the launcher, session menu or overview is open, a click anywhere outside it
+        // closes it.
         MouseArea {
             anchors.fill: parent
-            visible: launcher.open || sessionMenu.open
+            visible: launcher.open || sessionMenu.open || overview.open
             onPressed: {
                 Launcher.open = false;
                 Lock.menuOpen = false;
+                Overview.open = false;
             }
         }
 
@@ -287,6 +295,14 @@ Scope {
             opacity: 1 - root.closed
             visible: opacity > 0
 
+            // Below the panels; rises out of the bottom border into the gap above it.
+            VisualizerStrip {
+                anchors.bottom: parent.bottom
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: parent.width - (root.side + Config.border.rounding) * 2
+                height: root.side + Config.hyprland.gapsOut
+            }
+
             Bar {
                 anchors.top: parent.top
                 anchors.left: parent.left
@@ -299,6 +315,7 @@ Scope {
                     Owly.closeSend();
                     Launcher.open = false;
                     Lock.menuOpen = false;
+                    Overview.open = false;
                     cc.open = !cc.open;
                 }
             }
@@ -337,10 +354,11 @@ Scope {
                 anchors.topMargin: root.top
                 anchors.horizontalCenter: parent.horizontalCenter
                 onClosed: Launcher.open = false
-                // The control centre and send panel share its spot.
+                // The control centre, send panel and overview share its spot.
                 onOpenChanged: if (open) {
                     cc.open = false;
                     Owly.closeSend();
+                    Overview.open = false;
                 }
             }
 
@@ -356,6 +374,25 @@ Scope {
                 onOpenChanged: if (open) {
                     cc.open = false;
                     Owly.closeSend();
+                    Overview.open = false;
+                }
+            }
+
+            WorkspaceOverview {
+                id: overview
+
+                screen: root.modelData
+                open: Overview.on(root.modelData)
+                anchors.top: parent.top
+                anchors.topMargin: root.top
+                anchors.horizontalCenter: parent.horizontalCenter
+                onClosed: Overview.open = false
+                // It shares the launcher's spot.
+                onOpenChanged: if (open) {
+                    cc.open = false;
+                    Owly.closeSend();
+                    Launcher.open = false;
+                    Lock.menuOpen = false;
                 }
             }
 

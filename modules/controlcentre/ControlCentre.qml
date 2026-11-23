@@ -166,6 +166,31 @@ Item {
                     onExpandClicked: root.toggle("power", expandButton)
                 }
 
+                // Warmer colours from sunset to sunrise; a click overrides until the next one.
+                Tile {
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: 1
+                    enabled: NightLight.available
+                    expandable: false
+                    checked: NightLight.active
+                    icon: "\u{F0594}"
+                    title: "Night light"
+                    subtitle: NightLight.status
+                    onClicked: NightLight.toggle()
+                }
+
+                Tile {
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: 1
+                    enabled: Visualizer.available
+                    expandable: false
+                    checked: Visualizer.enabled
+                    icon: "\u{F147D}"
+                    title: "Visualizer"
+                    subtitle: !Visualizer.available ? "cava isn't installed" : !checked ? "Off" : Visualizer.playing ? "On" : "When something plays"
+                    onClicked: Visualizer.toggle()
+                }
+
                 // Clipboard history; the whole tile opens it.
                 Tile {
                     Layout.fillWidth: true

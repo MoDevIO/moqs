@@ -307,6 +307,48 @@ Singleton {
         return Object.values(rooms).filter(r => r.meta && roomName(r).toLowerCase().includes(q)).sort((a, b) => (b.meta.sorting_timestamp ?? 0) - (a.meta.sorting_timestamp ?? 0));
     }
 
+    // For the launcher's "@room message": rooms the query starts with, each with the rest as
+    // the message, best first: [{ room, message }]. A room's whole name wins; otherwise the
+    // first word picks rooms whose name (or a word in it) starts with it. Nothing typed: the
+    // most recent rooms.
+    function replyTargets(query: string): var {
+        const q = query.trim();
+        const recent = (a, b) => (b.room.meta.sorting_timestamp ?? 0) - (a.room.meta.sorting_timestamp ?? 0);
+        const all = Object.values(rooms).filter(r => r.meta);
+        if (!q)
+            return all.map(room => ({ room, message: "", score: 0 })).sort(recent).slice(0, 8);
+        const lower = q.toLowerCase();
+        const out = [];
+        for (const r of all) {
+            const n = roomName(r).toLowerCase();
+            if (n && (lower === n || lower.startsWith(n + " ")))
+                out.push({ room: r, message: q.slice(n.length).trim(), score: 100 + n.length });
+        }
+        const word = lower.split(/\s+/)[0];
+        const message = q.slice(word.length).trim();
+        for (const r of all) {
+            if (out.some(o => o.room === r))
+                continue;
+            const n = roomName(r).toLowerCase();
+            const sc = n.startsWith(word) ? 60 : n.split(/[\s\-_.]+/).some(w => w.startsWith(word)) ? 50 : 0;
+            if (sc)
+                out.push({ room: r, message, score: sc });
+        }
+        return out.sort((a, b) => b.score - a.score || recent(a, b)).slice(0, 8);
+    }
+
+    // Sends from outside the panel (the launcher's "@"), with a notification if it fails.
+    function quickSend(roomId: string, message: string): void {
+        const room = rooms[roomId];
+        exec("send_message", { room_id: roomId, text: message }, evt => {
+            if (!evt?.rowid)
+                return;
+            addEvent(evt);
+            ensureRoom(roomId).pending.push(evt.rowid);
+            version++;
+        }, () => Quickshell.execDetached(["notify-send", "-a", "Matrix", "-i", "dialog-error", `Couldn't send to ${room ? roomName(room) : "the room"}`, message]));
+    }
+
     // Message notifications. gomuks decides which messages notify (push rules); none are shown
     // for the chat that's open on screen.
     property bool panelOpen

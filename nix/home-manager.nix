@@ -165,8 +165,10 @@ in
           with pkgs;
           [
             brightnessctl
+            cava
             cliphist
             curl
+            hyprsunset
             libnotify
             wl-clipboard
           ]

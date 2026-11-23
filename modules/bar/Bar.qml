@@ -29,6 +29,10 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         spacing: 14
 
+        NetSpeed {
+            anchors.verticalCenter: parent.verticalCenter
+        }
+
         UsageBar {
             anchors.verticalCenter: parent.verticalCenter
             label: "CPU"

@@ -17,6 +17,7 @@ import qs.services
 //   ? search the web or open a URL  : find an emoji (Enter copies)
 //   ; snippets (Enter copies; "name: text" saves one, Ctrl+Delete removes)
 //   / recent files                  # nixpkgs, started with nix run (Shift+Enter in a terminal)
+//   @ send a Matrix message: "@room message" (Enter sends; without a message, opens the room)
 Item {
     id: root
 
@@ -51,7 +52,7 @@ Item {
 
     readonly property string query: search.text.trim()
     // "apps", "calc" or "run", from the first character.
-    readonly property var prefixes: ({ "=": "calc", "!": "run", ">": "hass", "?": "web", ":": "emoji", ";": "snippet", "/": "file", "#": "nix" })
+    readonly property var prefixes: ({ "=": "calc", "!": "run", ">": "hass", "?": "web", ":": "emoji", ";": "snippet", "/": "file", "#": "nix", "@": "reply" })
     readonly property string mode: prefixes[query.charAt(0)] ?? "apps"
     // "#" loads (and, if it's old, rebuilds) the nixpkgs index. Searching its 100 000-odd
     // packages waits for a pause in typing, so keys don't lag.
@@ -103,6 +104,13 @@ Item {
                 return [{ kind: "calc", expr: rest, result: c.error ? "" : Launcher.formatNumber(Number(c.value.toPrecision(7))), unit: c.unit ?? "", error: c.error ?? "" }];
             const v = Launcher.calculate(rest);
             return [{ kind: "calc", expr: rest, result: isNaN(v) ? "" : Launcher.formatNumber(v), unit: "", error: "" }];
+        }
+        case "reply": {
+            if (!Matrix.configured)
+                return [{ kind: "replyinfo" }];
+            Matrix.version;
+            const found = Matrix.replyTargets(rest);
+            return found.length ? found.map(x => ({ kind: "reply", room: x.room, message: x.message })) : [{ kind: "replyinfo" }];
         }
         case "hass": {
             if (!HomeAssistant.configured)
@@ -255,8 +263,17 @@ Item {
             else
                 HomeAssistant.run(item.cmd);
             break;
+        case "reply":
+            if (!item.message) {
+                root.closed();
+                Matrix.replyRequested(item.room.meta.room_id);
+                return;
+            }
+            Matrix.quickSend(item.room.meta.room_id, item.message);
+            break;
         case "nixinfo":
         case "hassinfo":
+        case "replyinfo":
             return;
         }
         root.closed();
@@ -287,6 +304,10 @@ Item {
             return `Save snippet "${item.name}"`;
         case "nix":
             return item.pkg[0];
+        case "reply":
+            return Matrix.roomName(item.room);
+        case "replyinfo":
+            return Matrix.configured ? "No room matches" : "Matrix isn't set up";
         case "hass":
             return item.cmd.name;
         case "hassinfo":
@@ -331,6 +352,10 @@ Item {
             return item.text;
         case "nix":
             return [item.cached ? "In the store" : "", item.pkg[2], item.pkg[3]].filter(x => x).join(" · ");
+        case "reply":
+            return item.message ? `Enter sends "${item.message}"` : "Type a message · Enter opens the room";
+        case "replyinfo":
+            return Matrix.configured ? "@room message" : "";
         case "hass":
             return item.cmd.detail;
         case "hassinfo":
@@ -348,7 +373,7 @@ Item {
     }
 
     // Glyph for rows without an app icon, avatar or emoji.
-    readonly property var glyphs: ({ calc: "\u{F00EC}", run: "\u{F018D}", web: "\u{F0349}", url: "\u{F059F}", snippet: "\u{F09ED}", save: "\u{F0415}", nix: "\u{F1105}", nixinfo: "\u{F1105}", hassinfo: "\u{F07D0}" })
+    readonly property var glyphs: ({ calc: "\u{F00EC}", run: "\u{F018D}", web: "\u{F0349}", url: "\u{F059F}", snippet: "\u{F09ED}", save: "\u{F0415}", nix: "\u{F1105}", nixinfo: "\u{F1105}", hassinfo: "\u{F07D0}", replyinfo: "\u{F0368}" })
 
     readonly property int rowHeight: Config.launcher.row
     readonly property real targetWidth: open ? Config.launcher.width : Config.launcher.seed
@@ -524,9 +549,11 @@ Item {
 
                             MX.Avatar {
                                 anchors.fill: parent
-                                visible: row.kind === "room"
-                                name: row.kind === "room" ? Matrix.roomName(row.modelData.room) : ""
-                                source: row.kind === "room" ? Matrix.mediaUrl(row.modelData.room.meta.avatar ?? "", false) : ""
+                                readonly property bool shown: row.kind === "room" || row.kind === "reply"
+
+                                visible: shown
+                                name: shown ? Matrix.roomName(row.modelData.room) : ""
+                                source: shown ? Matrix.mediaUrl(row.modelData.room.meta.avatar ?? "", false) : ""
                             }
 
                             IconImage {
@@ -555,7 +582,7 @@ Item {
                         }
 
                         Text {
-                            readonly property bool placeholder: (row.kind === "calc" && !row.modelData.result) || (row.kind === "run" && !row.modelData.command) || (row.kind === "web" && !row.modelData.text) || row.kind === "nixinfo" || row.kind === "hassinfo"
+                            readonly property bool placeholder: (row.kind === "calc" && !row.modelData.result) || (row.kind === "run" && !row.modelData.command) || (row.kind === "web" && !row.modelData.text) || row.kind === "nixinfo" || row.kind === "hassinfo" || row.kind === "replyinfo"
 
                             Layout.maximumWidth: list.width * 0.6
                             text: root.title(row.modelData)
@@ -594,7 +621,7 @@ Item {
                 Layout.fillWidth: true
                 visible: root.query === ""
                 horizontalAlignment: Text.AlignHCenter
-                text: "= calc   ! run   > home   ? web   : emoji   ; snippets   / files   # nixpkgs"
+                text: "= calc   ! run   > home   ? web   : emoji   ; snippets   / files   # nixpkgs   @ reply"
                 color: Config.colours.muted
                 font.family: Config.font.family
                 font.pointSize: Config.font.small

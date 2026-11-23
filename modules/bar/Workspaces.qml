@@ -2,9 +2,11 @@ import QtQuick
 import Quickshell
 import Quickshell.Hyprland
 import qs.config
+import qs.services
 
 // Workspaces of this bar's monitor as dots, numbered 1..perMonitor. Occupied dots are
-// brighter than empty ones; a white dot slides to the active workspace.
+// brighter than empty ones; a white dot slides to the active workspace. A right click opens
+// the workspace overview.
 Item {
     id: root
 
@@ -35,6 +37,12 @@ Item {
 
     implicitWidth: list.contentWidth
     implicitHeight: Config.workspaces.size
+
+    MouseArea {
+        anchors.fill: parent
+        acceptedButtons: Qt.RightButton
+        onClicked: Overview.toggle(root.screen.name)
+    }
 
     // Positioned by the active workspace's delegate.
     Rectangle {

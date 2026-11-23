@@ -15,6 +15,8 @@ Singleton {
         readonly property int padding: 12
         // Battery percentage beside the icon at start; clicking the icon toggles it.
         readonly property bool showBatteryPercentage: false
+        // Download or upload rate (bytes per second) above which the bar shows the rates.
+        readonly property real netThreshold: 100000
     }
 
     readonly property QtObject workspaces: QtObject {
@@ -114,6 +116,30 @@ Singleton {
         readonly property int hours: 6
         // Minutes between refreshes.
         readonly property int refresh: 15
+    }
+
+    readonly property QtObject overview: QtObject {
+        // Width of one workspace, workspaces per row, and the space around and between them.
+        readonly property int cell: 300
+        readonly property int columns: 3
+        readonly property int padding: 12
+        readonly property int spacing: 10
+    }
+
+    readonly property QtObject nightLight: QtObject {
+        // Colour temperature in kelvin while on.
+        readonly property int temperature: 4000
+        // When it's on without a location for the weather (or where the sun doesn't set).
+        readonly property string from: "20:00"
+        readonly property string until: "07:00"
+    }
+
+    readonly property QtObject visualizer: QtObject {
+        readonly property int bars: 64
+        readonly property int framerate: 30
+        // Space between bars, and how strongly they show.
+        readonly property int gap: 3
+        readonly property real opacity: 0.55
     }
 
     readonly property QtObject hass: QtObject {

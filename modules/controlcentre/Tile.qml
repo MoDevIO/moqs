@@ -12,6 +12,8 @@ Rectangle {
     property string subtitle
     property bool enabled: true
     property bool expanded
+    // Has a list behind a chevron.
+    property bool expandable: true
     // The chevron, for a popover to open from.
     readonly property Item expandButton: expand
 
@@ -81,6 +83,7 @@ Rectangle {
         ExpandButton {
             id: expand
 
+            visible: root.expandable
             expanded: root.expanded
             inverted: root.checked
             enabled: root.enabled
