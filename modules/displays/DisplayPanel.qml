@@ -6,7 +6,8 @@ import qs.modules.controlcentre as CC
 import qs.services
 
 // The display panel, grown out of the middle of the bar: side by side (drag the displays
-// into place; they snap edge to edge) or mirrored. Apply asks to keep the result and goes
+// into place; they snap edge to edge) or mirrored, and the resolution and scale of the
+// display clicked. Apply asks to keep the result and goes
 // back by itself after Displays.keepSeconds. Escape or a click outside closes it (and goes
 // back, while it's asking).
 Item {
@@ -181,6 +182,7 @@ Item {
                         required property var modelData
                         readonly property var monitor: Displays.byName(modelData.name)
                         readonly property bool source: stage.mirror && Displays.mirrorSource === modelData.name
+                        readonly property bool picked: Displays.selected === modelData.name
                         readonly property real homeX: stage.originX + modelData.x * stage.zoom
                         readonly property real homeY: stage.originY + modelData.y * stage.zoom
 
@@ -191,8 +193,8 @@ Item {
                         z: boxArea.drag.active ? 2 : 1
                         radius: 6
                         color: source ? Config.colours.active : boxArea.containsMouse ? Config.colours.buttonHover : Config.colours.button
-                        border.width: 1
-                        border.color: Config.colours.muted
+                        border.width: picked ? 2 : 1
+                        border.color: picked ? Config.colours.active : Config.colours.muted
 
                         Column {
                             anchors.centerIn: parent
@@ -213,7 +215,7 @@ Item {
                             Text {
                                 width: parent.width
                                 horizontalAlignment: Text.AlignHCenter
-                                text: screenBox.monitor ? `${screenBox.monitor.width}×${screenBox.monitor.height}` : ""
+                                text: screenBox.monitor ? `${Displays.modeName(Displays.modeOf(screenBox.monitor)).split(" · ")[0]} · ${Displays.scaleName(Displays.scaleOf(screenBox.monitor))}` : ""
                                 elide: Text.ElideRight
                                 color: screenBox.source ? Qt.alpha(Config.colours.activeText, 0.6) : Config.colours.subtext
                                 font.family: Config.font.family
@@ -240,8 +242,11 @@ Item {
                             cursorShape: stage.mirror ? Qt.PointingHandCursor : drag.active ? Qt.ClosedHandCursor : Qt.OpenHandCursor
                             drag.target: stage.mirror ? null : screenBox
                             drag.threshold: 4
-                            onClicked: if (stage.mirror)
-                                Displays.mirrorSource = screenBox.modelData.name
+                            onClicked: {
+                                Displays.selected = screenBox.modelData.name;
+                                if (stage.mirror)
+                                    Displays.mirrorSource = screenBox.modelData.name;
+                            }
                             onReleased: {
                                 if (!stage.mirror && drag.active)
                                     Displays.move(screenBox.modelData.name, (screenBox.x - stage.originX) / stage.zoom, (screenBox.y - stage.originY) / stage.zoom);
@@ -255,11 +260,178 @@ Item {
 
             Text {
                 Layout.fillWidth: true
-                text: Displays.countdown > 0 ? `Keep these settings? Going back in ${Displays.countdown} s` : stage.mirror ? "Click the display the others should show" : stage.list.length > 1 ? "Drag the displays to arrange them" : "Only one display is connected"
+                text: Displays.countdown > 0 ? `Keep these settings? Going back in ${Displays.countdown} s` : stage.mirror ? "Click the display the others should show; its settings show below" : stage.list.length > 1 ? "Drag the displays to arrange them, click one for its settings" : "Only one display is connected"
                 wrapMode: Text.Wrap
                 color: Displays.countdown > 0 ? Config.colours.text : Config.colours.subtext
                 font.family: Config.font.family
                 font.pointSize: Config.font.small
+            }
+
+            // Resolution and scale of the display clicked.
+            ColumnLayout {
+                id: picker
+
+                readonly property var monitor: Displays.byName(Displays.selected)
+                property bool listOpen
+
+                Layout.fillWidth: true
+                visible: monitor !== null
+                enabled: Displays.countdown === 0
+                opacity: enabled ? 1 : 0.5
+                spacing: 6
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+
+                    Text {
+                        text: picker.monitor?.name ?? ""
+                        color: Config.colours.text
+                        font.family: Config.font.family
+                        font.pointSize: Config.font.size
+                        font.bold: true
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: picker.monitor?.description ?? ""
+                        elide: Text.ElideRight
+                        color: Config.colours.subtext
+                        font.family: Config.font.family
+                        font.pointSize: Config.font.small
+                    }
+                }
+
+                // The resolution; a click lists the others the display offers.
+                Rectangle {
+                    Layout.fillWidth: true
+                    implicitHeight: 36
+                    radius: height / 2
+                    color: modeArea.containsMouse ? Config.colours.buttonHover : Config.colours.card
+
+                    Text {
+                        anchors.left: parent.left
+                        anchors.leftMargin: 14
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "Resolution"
+                        color: Config.colours.subtext
+                        font.family: Config.font.family
+                        font.pointSize: Config.font.small
+                    }
+
+                    Text {
+                        anchors.right: parent.right
+                        anchors.rightMargin: 14
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: `${picker.monitor ? Displays.modeName(Displays.modeOf(picker.monitor)) : ""}  ${picker.listOpen ? "\u{F0143}" : "\u{F0140}"}`
+                        color: Config.colours.text
+                        font.family: Config.font.family
+                        font.pointSize: Config.font.small
+                    }
+
+                    MouseArea {
+                        id: modeArea
+
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: picker.listOpen = !picker.listOpen
+                    }
+                }
+
+                ListView {
+                    id: modes
+
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Math.min(count, 6) * 32
+                    visible: picker.listOpen
+                    clip: true
+                    boundsBehavior: Flickable.StopAtBounds
+                    model: picker.monitor?.modes ?? []
+
+                    delegate: Rectangle {
+                        id: modeRow
+
+                        required property string modelData
+                        readonly property bool current: picker.monitor !== null && Displays.modeOf(picker.monitor) === modelData
+
+                        width: modes.width
+                        height: 32
+                        radius: height / 2
+                        color: current ? Config.colours.active : rowArea.containsMouse ? Config.colours.buttonHover : "transparent"
+
+                        Text {
+                            anchors.left: parent.left
+                            anchors.leftMargin: 14
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: Displays.modeName(modeRow.modelData)
+                            color: modeRow.current ? Config.colours.activeText : Config.colours.text
+                            font.family: Config.font.family
+                            font.pointSize: Config.font.small
+                            font.bold: modeRow.current
+                        }
+
+                        MouseArea {
+                            id: rowArea
+
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                Displays.setMode(picker.monitor.name, modeRow.modelData);
+                                picker.listOpen = false;
+                            }
+                        }
+                    }
+                }
+
+                // Scale: the usual steps, and the one the display has.
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 4
+
+                    Text {
+                        Layout.rightMargin: 6
+                        text: "Scale"
+                        color: Config.colours.subtext
+                        font.family: Config.font.family
+                        font.pointSize: Config.font.small
+                    }
+
+                    Repeater {
+                        model: picker.monitor ? [...new Set([...Displays.scales, picker.monitor.scale])].sort((a, b) => a - b) : []
+
+                        delegate: Rectangle {
+                            id: chip
+
+                            required property real modelData
+                            readonly property bool current: picker.monitor !== null && Math.abs(Displays.scaleOf(picker.monitor) - modelData) < 0.001
+
+                            Layout.fillWidth: true
+                            implicitHeight: 30
+                            radius: height / 2
+                            color: current ? Config.colours.active : chipArea.containsMouse ? Config.colours.buttonHover : Config.colours.card
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: Displays.scaleName(chip.modelData)
+                                color: chip.current ? Config.colours.activeText : Config.colours.text
+                                font.family: Config.font.family
+                                font.pointSize: Config.font.small
+                                font.bold: chip.current
+                            }
+
+                            MouseArea {
+                                id: chipArea
+
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: Displays.setScale(picker.monitor.name, chip.modelData)
+                            }
+                        }
+                    }
+                }
             }
 
             RowLayout {
