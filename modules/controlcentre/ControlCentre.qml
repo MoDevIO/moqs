@@ -12,8 +12,8 @@ Item {
     id: root
 
     property bool open: false
-    // Which list's popover is up: "", "wifi", "bluetooth", "airdrop", "power", "audio" or
-    // "clipboard".
+    // Which list's popover is up: "", "wifi", "bluetooth", "airdrop", "power", "audio",
+    // "visualizer" or "clipboard".
     property string expanded: ""
     // A popover is up; it's its own window, so the pointer leaving for it mustn't close this.
     readonly property bool popupOpen: popover.visible
@@ -183,12 +183,13 @@ Item {
                     Layout.fillWidth: true
                     Layout.preferredWidth: 1
                     enabled: Visualizer.available
-                    expandable: false
                     checked: Visualizer.enabled
                     icon: "\u{F147D}"
                     title: "Visualizer"
                     subtitle: !Visualizer.available ? "cava isn't installed" : !checked ? "Off" : Visualizer.playing ? "On" : "When something plays"
+                    expanded: root.expanded === "visualizer"
                     onClicked: Visualizer.toggle()
+                    onExpandClicked: root.toggle("visualizer", expandButton)
                 }
 
                 // Clipboard history; the whole tile opens it.
@@ -256,7 +257,15 @@ Item {
 
         Loader {
             width: parent.width
-            sourceComponent: ({ wifi: wifiList, bluetooth: bluetoothList, airdrop: airdropList, power: powerList, audio: audioList, clipboard: clipboardList })[root.expanded] ?? null
+            sourceComponent: ({ wifi: wifiList, bluetooth: bluetoothList, airdrop: airdropList, power: powerList, visualizer: visualizerSettings, audio: audioList, clipboard: clipboardList })[root.expanded] ?? null
+        }
+    }
+
+    Component {
+        id: visualizerSettings
+
+        VisualizerSettings {
+            color: "transparent"
         }
     }
 

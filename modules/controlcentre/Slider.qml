@@ -9,6 +9,8 @@ Item {
     property string icon
     property bool dimmed
     property color trackColour: Config.colours.card
+    // Shown at the right end.
+    property string valueText: `${Math.round(value * 100)}`
 
     signal moved(real value)
     signal iconClicked
@@ -74,7 +76,7 @@ Item {
         anchors.right: parent.right
         anchors.rightMargin: 14
         anchors.verticalCenter: parent.verticalCenter
-        text: `${Math.round(root.value * 100)}`
+        text: root.valueText
         color: root.value > 0.88 ? Config.colours.activeText : Config.colours.subtext
         font.family: Config.font.family
         font.pointSize: Config.font.small

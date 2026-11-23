@@ -295,12 +295,13 @@ Scope {
             opacity: 1 - root.closed
             visible: opacity > 0
 
-            // Below the panels; rises out of the bottom border into the gap above it.
+            // Below the panels; rises out of the bottom border, as high as set in the control
+            // centre (by default into the gap above it).
             VisualizerStrip {
                 anchors.bottom: parent.bottom
                 anchors.horizontalCenter: parent.horizontalCenter
                 width: parent.width - (root.side + Config.border.rounding) * 2
-                height: root.side + Config.hyprland.gapsOut
+                height: Visualizer.height
             }
 
             Bar {

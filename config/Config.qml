@@ -135,6 +135,10 @@ Singleton {
     }
 
     readonly property QtObject visualizer: QtObject {
+        // How high (px) the bars reach at full level until it's set in the control centre (the
+        // bottom border and the gap above it), and the most the slider goes to.
+        readonly property int height: 12
+        readonly property int maxHeight: 200
         readonly property int bars: 64
         readonly property int framerate: 30
         // Space between bars, and how strongly they show.

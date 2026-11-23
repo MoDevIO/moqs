@@ -6,12 +6,17 @@ import Quickshell.Io
 import Quickshell.Services.Mpris
 import qs.config
 
-// Audio bars from cava along the bottom border while something plays. On or off from the
-// control centre; the choice is kept in $XDG_STATE_HOME/moqs/visualizer, "on" or "off".
+// Audio bars from cava along the bottom border while something plays. On or off, and how
+// high the bars reach, from the control centre; both are kept in
+// $XDG_STATE_HOME/moqs/visualizer as { "enabled": true, "height": 24 }.
 Singleton {
     id: root
 
     property bool enabled
+    // How high (px) the bars reach at full level, from the screen's bottom edge.
+    property int height: Config.visualizer.height
+    readonly property int minHeight: 4
+    readonly property int maxHeight: Config.visualizer.maxHeight
     // cava is installed.
     property bool available: true
     readonly property bool playing: Mpris.players.values.some(p => p.isPlaying)
@@ -24,7 +29,20 @@ Singleton {
 
     function toggle(): void {
         enabled = !enabled;
-        stateFile.setText(enabled ? "on\n" : "off\n");
+        save.restart();
+    }
+
+    function setHeight(px: int): void {
+        height = Math.max(minHeight, Math.min(maxHeight, px));
+        save.restart();
+    }
+
+    // Dragging the slider saves once it pauses.
+    Timer {
+        id: save
+
+        interval: 300
+        onTriggered: stateFile.setText(JSON.stringify({ enabled: root.enabled, height: root.height }) + "\n")
     }
 
     onRunningChanged: if (!running)
@@ -37,7 +55,19 @@ Singleton {
 
         path: root.statePath
         printErrors: false
-        onLoaded: root.enabled = text().trim() === "on"
+        onLoaded: {
+            const t = text().trim();
+            let s = {};
+            try {
+                s = JSON.parse(t);
+            } catch (e) {
+                // The first versions kept only "on" or "off".
+                s = { enabled: t === "on" };
+            }
+            root.enabled = !!s.enabled;
+            if (s.height > 0)
+                root.height = Math.max(root.minHeight, Math.min(root.maxHeight, s.height));
+        }
     }
 
     Process {
