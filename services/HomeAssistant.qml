@@ -25,6 +25,9 @@ import qs.config
 //   sensors  several values side by side in one block
 // Each entity is an ID or { "entity", "name", "icon" }; name and icon default to Home
 // Assistant's. Icons are Material Design Icons names ("mdi:solar-power").
+//
+// The launcher's ">" reaches every entity: "> desk lamp" toggles it, "> desk lamp off",
+// "> desk lamp 40" dims it, "> heater 21" sets a thermostat, "> lights off" all lights.
 Singleton {
     id: root
 
@@ -57,6 +60,160 @@ Singleton {
     property var states: ({})
     // Polls while true; the dashboard sets it while it's open.
     property bool active
+
+    // Every entity ID Home Assistant has, for the launcher; loaded by loadAll().
+    property var allEntities: []
+
+    function loadAll(): void {
+        if (!configured)
+            return;
+        request("GET", "/api/states", null, list => {
+            update(list ?? []);
+            allEntities = (list ?? []).map(s => s.entity_id).filter(x => x).sort();
+        });
+    }
+
+    // Words for all entities of a domain, as in "lights off".
+    readonly property var groups: ({ lights: "light", switches: "switch", fans: "fan", covers: "cover", blinds: "cover" })
+
+    // What the launcher's ">query" can do, best match first: [{ entity, all, name, action,
+    // value, glyph, detail }]. The query is a name, then optionally on, off (or an, aus),
+    // toggle, or a number: brightness or volume in percent, a temperature, a position.
+    function commands(query: string): var {
+        let q = query.trim().toLowerCase();
+        let word = "";
+        let num = NaN;
+        let m = q.match(/^(.*?)\s+(on|off|an|aus|toggle)$/);
+        if (m) {
+            q = m[1];
+            word = ({ an: "on", aus: "off" })[m[2]] ?? m[2];
+        } else if ((m = q.match(/^(.*?)\s+(-?\d+(?:[.,]\d+)?)\s*(?:%|°\s*c?)?$/))) {
+            q = m[1];
+            num = Number(m[2].replace(",", "."));
+        }
+        const out = [];
+        const group = groups[q];
+        if (group && (word === "on" || word === "off")) {
+            out.push({ entity: group, all: true, name: `All ${q}`, action: word, value: 0, glyph: glyph(group === "light" ? "lightbulb-group" : "home-automation"), detail: `Enter turns all ${word}`, score: 200 });
+        }
+        const ids = q ? allEntities : entities;
+        for (const id of ids) {
+            const label = root.name({ entity: id, name: "" });
+            const n = label.toLowerCase();
+            let sc = !q ? 50 : n === q ? 100 : n.startsWith(q) ? 90 : n.split(/[\s\-_.]+/).some(w => w.startsWith(q)) ? 80 : n.includes(q) ? 70 : q.split(/\s+/).every(w => n.includes(w)) ? 60 : id.includes(q.replace(/\s+/g, "_")) ? 40 : 0;
+            if (!sc)
+                continue;
+            const act = actionFor(id, word, num);
+            if (!act)
+                continue;
+            // Things that do something before sensors, the dashboard's own first.
+            sc += (act.action !== "copy" ? 5 : 0) + (entities.includes(id) ? 3 : 0) - (state(id)?.state === "unavailable" ? 20 : 0);
+            out.push(Object.assign({ entity: id, all: false, name: label, glyph: icon({ entity: id, icon: "" }), score: sc }, act));
+        }
+        const shown = out.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name)).slice(0, 30);
+        // Entities that share a name show their ID too.
+        const names = {};
+        for (const c of shown)
+            names[c.name] = (names[c.name] ?? 0) + 1;
+        return shown.map(c => c.all || names[c.name] < 2 ? c : Object.assign({}, c, { detail: `${c.entity} · ${c.detail}` }));
+    }
+
+    // What Enter does to an entity for a word or number, or null if it can't.
+    function actionFor(id: string, word: string, num: real): var {
+        const domain = id.split(".")[0];
+        const s = state(id);
+        const now = describe(id);
+        const say = text => ({ detail: now ? `${now} · ${text}` : text });
+        if (!isNaN(num)) {
+            const pct = Math.max(0, Math.min(100, Math.round(num)));
+            const unit = s?.attributes?.temperature_unit ?? "°";
+            const set = {
+                light: ["brightness", pct, `Enter sets ${pct}%`],
+                fan: ["percentage", pct, `Enter sets ${pct}%`],
+                cover: ["position", pct, `Enter opens to ${pct}%`],
+                media_player: ["volume", pct, `Enter sets the volume to ${pct}%`],
+                climate: ["temperature", num, `Enter sets ${num}${unit}`],
+                water_heater: ["temperature", num, `Enter sets ${num}${unit}`],
+                input_number: ["value", num, `Enter sets ${num}`],
+                number: ["value", num, `Enter sets ${num}`]
+            }[domain];
+            return set ? Object.assign({ action: set[0], value: set[1] }, say(set[2])) : null;
+        }
+        const switchable = ["light", "switch", "fan", "input_boolean", "automation", "cover", "media_player", "climate", "water_heater", "humidifier", "siren", "remote", "vacuum"].includes(domain);
+        if (word === "on" || word === "off")
+            return switchable ? Object.assign({ action: word, value: 0 }, say(`Enter turns ${word}`)) : null;
+        if (["scene", "script", "button", "input_button"].includes(domain))
+            return word ? null : Object.assign({ action: "press", value: 0 }, say(domain.endsWith("button") ? "Enter presses" : "Enter runs"));
+        if (switchable)
+            return Object.assign({ action: "toggle", value: 0 }, say(word === "toggle" || !s ? "Enter toggles" : `Enter turns ${s.state === "on" || s.state === "open" || s.state === "playing" ? "off" : "on"}`));
+        return word ? null : Object.assign({ action: "copy", value: 0 }, say("Enter copies"));
+    }
+
+    // An entity's state in a few words: "On · 60%", "21.5 °C → 22°", "Playing".
+    function describe(id: string): string {
+        const s = state(id);
+        if (!s)
+            return "";
+        const a = s.attributes ?? {};
+        const domain = id.split(".")[0];
+        if (["sensor", "number", "input_number"].includes(domain))
+            return value(id);
+        if (domain === "climate" || domain === "water_heater") {
+            const t = a.temperature ?? a.target_temp_high;
+            return [a.current_temperature != null ? `${a.current_temperature}°` : "", t != null ? `→ ${t}°` : "", s.state].filter(x => x).join(" ");
+        }
+        if (["scene", "script", "button", "input_button"].includes(domain))
+            return "";
+        const st = s.state === "unavailable" ? "Unavailable" : s.state.charAt(0).toUpperCase() + s.state.slice(1).replace(/_/g, " ");
+        if (domain === "light" && s.state === "on" && a.brightness != null)
+            return `${st} · ${Math.round(a.brightness / 2.55)}%`;
+        if (domain === "cover" && a.current_position != null)
+            return `${st} · ${a.current_position}%`;
+        return st;
+    }
+
+    // Runs one of commands()' results (except "copy", which the launcher does).
+    function run(c: var): void {
+        const id = c.entity;
+        const domain = c.all ? id : id.split(".")[0];
+        switch (c.action) {
+        case "toggle":
+            toggle(id);
+            break;
+        case "on":
+        case "off":
+            if (c.all) {
+                call(domain, `turn_${c.action}`, { entity_id: "all" });
+            } else {
+                const s = state(id);
+                if (s && ["light", "switch", "fan", "input_boolean"].includes(domain))
+                    update([Object.assign({}, s, { state: c.action })]);
+                call("homeassistant", `turn_${c.action}`, { entity_id: id });
+            }
+            break;
+        case "press":
+            press(id);
+            break;
+        case "brightness":
+            call("light", c.value > 0 ? "turn_on" : "turn_off", c.value > 0 ? { entity_id: id, brightness_pct: c.value } : { entity_id: id });
+            break;
+        case "percentage":
+            call("fan", "set_percentage", { entity_id: id, percentage: c.value });
+            break;
+        case "position":
+            call("cover", "set_cover_position", { entity_id: id, position: c.value });
+            break;
+        case "volume":
+            call("media_player", "volume_set", { entity_id: id, volume_level: c.value / 100 });
+            break;
+        case "temperature":
+            call(domain, "set_temperature", { entity_id: id, temperature: c.value });
+            break;
+        case "value":
+            call(domain, "set_value", { entity_id: id, value: c.value });
+            break;
+        }
+    }
 
     function state(id: string): var {
         return states[id] ?? null;

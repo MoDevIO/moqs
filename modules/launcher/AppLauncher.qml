@@ -11,7 +11,9 @@ import qs.services
 // App launcher that grows out of the middle of the bar. Typing filters the apps, the ones
 // used most first, with matching Matrix rooms and recent files among them; Enter or a click
 // starts or opens one, arrows (or Tab) move, Escape closes. A first character switches mode:
-//   = calculate (Enter copies)      > run a command (Shift+Enter in a terminal)
+//   = calculate or convert units ("5 km in mi"; Enter copies)
+//   ! run a command (Shift+Enter in a terminal)
+//   > Home Assistant ("desk lamp off", "desk lamp 40", "heater 21", "lights off")
 //   ? search the web or open a URL  : find an emoji (Enter copies)
 //   ; snippets (Enter copies; "name: text" saves one, Ctrl+Delete removes)
 //   / recent files                  # nixpkgs, started with nix run (Shift+Enter in a terminal)
@@ -49,13 +51,18 @@ Item {
 
     readonly property string query: search.text.trim()
     // "apps", "calc" or "run", from the first character.
-    readonly property var prefixes: ({ "=": "calc", ">": "run", "?": "web", ":": "emoji", ";": "snippet", "/": "file", "#": "nix" })
+    readonly property var prefixes: ({ "=": "calc", "!": "run", ">": "hass", "?": "web", ":": "emoji", ";": "snippet", "/": "file", "#": "nix" })
     readonly property string mode: prefixes[query.charAt(0)] ?? "apps"
     // "#" loads (and, if it's old, rebuilds) the nixpkgs index. Searching its 100 000-odd
     // packages waits for a pause in typing, so keys don't lag.
-    onModeChanged: if (mode === "nix") {
-        Launcher.indexNixpkgs();
-        Launcher.checkNixCached();
+    onModeChanged: {
+        if (mode === "nix") {
+            Launcher.indexNixpkgs();
+            Launcher.checkNixCached();
+        }
+        // ">" lists every entity, with its state as of now.
+        if (mode === "hass")
+            HomeAssistant.loadAll();
     }
     onRestChanged: if (mode === "nix")
         nixTimer.restart()
@@ -91,8 +98,17 @@ Item {
         const q = rest.toLowerCase();
         switch (mode) {
         case "calc": {
+            const c = Launcher.convert(rest);
+            if (c)
+                return [{ kind: "calc", expr: rest, result: c.error ? "" : Launcher.formatNumber(Number(c.value.toPrecision(7))), unit: c.unit ?? "", error: c.error ?? "" }];
             const v = Launcher.calculate(rest);
-            return [{ kind: "calc", expr: rest, result: isNaN(v) ? "" : Launcher.formatNumber(v) }];
+            return [{ kind: "calc", expr: rest, result: isNaN(v) ? "" : Launcher.formatNumber(v), unit: "", error: "" }];
+        }
+        case "hass": {
+            if (!HomeAssistant.configured)
+                return [{ kind: "hassinfo" }];
+            const found = HomeAssistant.commands(rest);
+            return found.length ? found.map(c => ({ kind: "hass", cmd: c })) : [{ kind: "hassinfo" }];
         }
         case "run":
             return [{ kind: "run", command: rest }];
@@ -233,7 +249,14 @@ Item {
         case "nix":
             Launcher.runNix(item.pkg[0], terminal);
             break;
+        case "hass":
+            if (item.cmd.action === "copy")
+                copy(HomeAssistant.value(item.cmd.entity));
+            else
+                HomeAssistant.run(item.cmd);
+            break;
         case "nixinfo":
+        case "hassinfo":
             return;
         }
         root.closed();
@@ -249,7 +272,7 @@ Item {
         case "file":
             return item.file.name;
         case "calc":
-            return item.result ? `= ${item.result}` : item.expr ? "…" : "Type a calculation";
+            return item.result ? `= ${item.result}${item.unit ? " " + item.unit : ""}` : item.error || (item.expr ? "…" : "Type a calculation or 5 km in mi");
         case "run":
             return item.command || "Type a command";
         case "web":
@@ -264,6 +287,14 @@ Item {
             return `Save snippet "${item.name}"`;
         case "nix":
             return item.pkg[0];
+        case "hass":
+            return item.cmd.name;
+        case "hassinfo":
+            if (!HomeAssistant.configured)
+                return "Home Assistant isn't set up";
+            if (HomeAssistant.error)
+                return HomeAssistant.error;
+            return HomeAssistant.allEntities.length ? "Nothing matches" : "Loading…";
         case "nixinfo":
             if (Launcher.nixpkgsState === "failed")
                 return "Couldn't index nixpkgs";
@@ -300,6 +331,10 @@ Item {
             return item.text;
         case "nix":
             return [item.cached ? "In the store" : "", item.pkg[2], item.pkg[3]].filter(x => x).join(" · ");
+        case "hass":
+            return item.cmd.detail;
+        case "hassinfo":
+            return HomeAssistant.configured ? "A name, then on, off or a number" : "Add url and token to hass.json";
         case "nixinfo":
             if (Launcher.nixpkgsState === "failed")
                 return Launcher.nixpkgsError;
@@ -313,7 +348,7 @@ Item {
     }
 
     // Glyph for rows without an app icon, avatar or emoji.
-    readonly property var glyphs: ({ calc: "\u{F00EC}", run: "\u{F018D}", web: "\u{F0349}", url: "\u{F059F}", snippet: "\u{F09ED}", save: "\u{F0415}", nix: "\u{F1105}", nixinfo: "\u{F1105}" })
+    readonly property var glyphs: ({ calc: "\u{F00EC}", run: "\u{F018D}", web: "\u{F0349}", url: "\u{F059F}", snippet: "\u{F09ED}", save: "\u{F0415}", nix: "\u{F1105}", nixinfo: "\u{F1105}", hassinfo: "\u{F07D0}" })
 
     readonly property int rowHeight: Config.launcher.row
     readonly property real targetWidth: open ? Config.launcher.width : Config.launcher.seed
@@ -512,7 +547,7 @@ Item {
                             Text {
                                 anchors.centerIn: parent
                                 visible: text !== ""
-                                text: root.glyphs[row.kind] ?? ""
+                                text: row.kind === "hass" ? row.modelData.cmd.glyph : root.glyphs[row.kind] ?? ""
                                 color: Config.colours.subtext
                                 font.family: Config.font.family
                                 font.pointSize: Config.font.icon
@@ -520,7 +555,7 @@ Item {
                         }
 
                         Text {
-                            readonly property bool placeholder: (row.kind === "calc" && !row.modelData.result) || (row.kind === "run" && !row.modelData.command) || (row.kind === "web" && !row.modelData.text) || row.kind === "nixinfo"
+                            readonly property bool placeholder: (row.kind === "calc" && !row.modelData.result) || (row.kind === "run" && !row.modelData.command) || (row.kind === "web" && !row.modelData.text) || row.kind === "nixinfo" || row.kind === "hassinfo"
 
                             Layout.maximumWidth: list.width * 0.6
                             text: root.title(row.modelData)
@@ -534,7 +569,7 @@ Item {
                         Text {
                             Layout.fillWidth: true
                             text: root.detail(row.modelData)
-                            horizontalAlignment: ["calc", "run", "url"].includes(row.kind) ? Text.AlignRight : Text.AlignLeft
+                            horizontalAlignment: ["calc", "run", "url", "hass"].includes(row.kind) ? Text.AlignRight : Text.AlignLeft
                             elide: row.kind === "file" ? Text.ElideMiddle : Text.ElideRight
                             color: Config.colours.subtext
                             font.family: Config.font.family
@@ -559,7 +594,7 @@ Item {
                 Layout.fillWidth: true
                 visible: root.query === ""
                 horizontalAlignment: Text.AlignHCenter
-                text: "= calc   > run   ? web   : emoji   ; snippets   / files   # nixpkgs"
+                text: "= calc   ! run   > home   ? web   : emoji   ; snippets   / files   # nixpkgs"
                 color: Config.colours.muted
                 font.family: Config.font.family
                 font.pointSize: Config.font.small

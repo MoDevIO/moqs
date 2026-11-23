@@ -176,6 +176,118 @@ Singleton {
         }
     }
 
+    // Units for conversions, by lower case name: [dimension, factor to the dimension's base
+    // unit, offset added after it (for temperatures)].
+    readonly property var units: {
+        const u = {};
+        const def = (dim, factor, names, offset) => {
+            for (const n of names.split(" "))
+                u[n] = [dim, factor, offset ?? 0];
+        };
+        def("length", 1, "m meter meters metre metres");
+        def("length", 1000, "km kilometer kilometers kilometre kilometres");
+        def("length", 0.1, "dm");
+        def("length", 0.01, "cm centimeter centimeters centimetre centimetres");
+        def("length", 0.001, "mm millimeter millimeters millimetre millimetres");
+        def("length", 1e-6, "µm um micrometer micrometers");
+        def("length", 1e-9, "nm nanometer nanometers");
+        def("length", 1609.344, "mi mile miles");
+        def("length", 0.9144, "yd yard yards");
+        def("length", 0.3048, "ft foot feet");
+        def("length", 0.0254, "in inch inches");
+        def("length", 1852, "nmi");
+        def("mass", 1, "kg kilogram kilograms kilo kilos");
+        def("mass", 0.001, "g gram grams");
+        def("mass", 1e-6, "mg milligram milligrams");
+        def("mass", 1000, "t ton tons tonne tonnes");
+        def("mass", 0.45359237, "lb lbs pound pounds");
+        def("mass", 0.028349523125, "oz ounce ounces");
+        def("mass", 6.35029318, "st stone stones");
+        def("volume", 1, "l liter liters litre litres");
+        def("volume", 0.1, "dl");
+        def("volume", 0.01, "cl");
+        def("volume", 0.001, "ml milliliter milliliters millilitre millilitres cm3 cm³ ccm");
+        def("volume", 1000, "m3 m³");
+        def("volume", 3.785411784, "gal gallon gallons");
+        def("volume", 0.946352946, "qt quart quarts");
+        def("volume", 0.473176473, "pt pint pints");
+        def("volume", 0.2365882365, "cup cups");
+        def("volume", 0.0295735295625, "floz");
+        def("volume", 0.01478676478125, "tbsp");
+        def("volume", 0.00492892159375, "tsp");
+        def("area", 1, "m2 m² sqm");
+        def("area", 1e6, "km2 km²");
+        def("area", 1e-4, "cm2 cm²");
+        def("area", 1e4, "ha hectare hectares");
+        def("area", 4046.8564224, "ac acre acres");
+        def("area", 0.09290304, "ft2 ft² sqft");
+        def("area", 2589988.110336, "mi2 mi²");
+        def("speed", 1, "m/s mps");
+        def("speed", 1 / 3.6, "km/h kmh kph");
+        def("speed", 0.44704, "mph");
+        def("speed", 1852 / 3600, "kn kt knot knots");
+        def("time", 0.001, "ms");
+        def("time", 1, "s sec secs second seconds");
+        def("time", 60, "min mins minute minutes");
+        def("time", 3600, "h hr hrs hour hours");
+        def("time", 86400, "d day days");
+        def("time", 604800, "wk week weeks");
+        def("time", 31557600, "yr year years");
+        def("data", 1, "b byte bytes");
+        def("data", 0.125, "bit bits");
+        ["k", "m", "g", "t", "p"].forEach((p, i) => {
+            def("data", Math.pow(1000, i + 1), `${p}b ${p}byte ${p}bytes`);
+            def("data", Math.pow(1024, i + 1), `${p}ib`);
+            def("data", Math.pow(1000, i + 1) / 8, `${p}bit ${p}bits`);
+        });
+        def("energy", 1, "j joule joules");
+        def("energy", 1000, "kj");
+        def("energy", 4.184, "cal");
+        def("energy", 4184, "kcal");
+        def("energy", 3600, "wh");
+        def("energy", 3.6e6, "kwh");
+        def("energy", 3.6e9, "mwh");
+        def("power", 1, "w watt watts");
+        def("power", 1000, "kw");
+        def("power", 1e6, "mw");
+        def("power", 745.69987158227, "hp");
+        def("power", 735.49875, "ps");
+        def("pressure", 1, "pa");
+        def("pressure", 100, "hpa mbar");
+        def("pressure", 1000, "kpa");
+        def("pressure", 1e5, "bar");
+        def("pressure", 6894.757293168, "psi");
+        def("pressure", 101325, "atm");
+        def("temperature", 1, "k kelvin");
+        def("temperature", 1, "c °c celsius degc", 273.15);
+        def("temperature", 5 / 9, "f °f fahrenheit degf", 459.67 * 5 / 9);
+        def("angle", 1, "rad");
+        def("angle", Math.PI / 180, "deg ° degree degrees");
+        return u;
+    }
+
+    // A conversion for "=…" like "5 km in mi", "100 °F to C" or "2^10 MiB in GB": { value,
+    // unit } with the unit as typed, { error } for units that don't go together, or null if
+    // the input isn't a conversion. The amount can be a calculation.
+    function convert(input: string): var {
+        const m = input.trim().match(/^(.*\S)\s+(?:to|in|as|->|→|=)\s+(\S+)$/i);
+        if (!m)
+            return null;
+        const src = m[1].match(/^(.*?)\s*([a-zµ°²³\/]+[23²³]?)$/i);
+        if (!src)
+            return null;
+        const from = units[src[2].toLowerCase()];
+        const to = units[m[2].toLowerCase()];
+        if (!from || !to)
+            return null;
+        const amount = src[1] === "" ? 1 : calculate(src[1]);
+        if (isNaN(amount))
+            return null;
+        if (from[0] !== to[0])
+            return { error: `Can't convert ${from[0]} to ${to[0]}` };
+        return { value: (amount * from[1] + from[2] - to[2]) / to[1], unit: m[2] };
+    }
+
     // A result as text: up to 12 significant digits, no trailing zeros.
     function formatNumber(v: real): string {
         if (!isFinite(v))
