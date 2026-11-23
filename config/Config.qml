@@ -126,6 +126,13 @@ Singleton {
         readonly property int spacing: 10
     }
 
+    readonly property QtObject displays: QtObject {
+        // The display popup's width, the space inside it, and the height of the arrangement.
+        readonly property int width: 520
+        readonly property int padding: 18
+        readonly property int stage: 240
+    }
+
     readonly property QtObject nightLight: QtObject {
         // Colour temperature in kelvin while on.
         readonly property int temperature: 4000
