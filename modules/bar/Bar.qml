@@ -19,8 +19,16 @@ Item {
     }
 
     Clock {
+        id: clock
+
         anchors.centerIn: parent
         onClicked: root.clockClicked()
+    }
+
+    VocabDue {
+        anchors.left: clock.right
+        anchors.leftMargin: 14
+        anchors.verticalCenter: parent.verticalCenter
     }
 
     Row {

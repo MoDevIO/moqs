@@ -9,6 +9,8 @@ import qs.config
 // after the password on the lock screen. Words are in $XDG_STATE_HOME/moqs/vocab.txt, one per
 // line as "word = translation" (or tab-separated, as Anki exports); "," "/" or ";" separates
 // answers that each count, and a part in brackets may be left out: "(to) run, sprint".
+// After " # " a line may have a note, e.g. grammar, shown once the word is answered. A
+// comment line ("# Lektion 3") heads the words below it, for the stats.
 // A word is asked as written (word -> translation), or also the other way round; due and new
 // words come in the list's order, or at random.
 //
@@ -28,6 +30,8 @@ import qs.config
 //   qs ipc call vocab toggleLock           (also setLock true|false, lockEnabled)
 //   qs ipc call vocab toggleBothWays       (also setBothWays true|false, bothWays)
 //   qs ipc call vocab toggleRandom         (also setRandom true|false, random)
+//   qs ipc call vocab toggleGames          (also setGames true|false, games: Steam games
+//                                           ask a word first, see GameGate)
 //   qs ipc call vocab add "word" "translation"
 //   qs ipc call vocab stats
 Singleton {
@@ -37,7 +41,8 @@ Singleton {
     readonly property string wordsPath: `${stateDir}/vocab.txt`
     readonly property real day: 86400000
 
-    // [{ front, back, line }], line being its index in vocab.txt.
+    // [{ front, back, hint, section, line }], line being its index in vocab.txt and section
+    // the comment heading it.
     property var cards: []
     // Card key -> { due, last (ms), s (stability, days), d (difficulty, 1..10), reps, lapses }.
     property var sched: ({})
@@ -50,6 +55,10 @@ Singleton {
     property bool bothWays
     // Due and new words at random rather than in order.
     property bool random
+    // Steam games ask a word before they show (GameGate).
+    property bool games: true
+    // Answers by day, "yyyy-MM-dd" -> { n (answers), r (right), w (new words) }, the last 90.
+    property var history: ({})
     // Seconds until the first key in the last right answers, newest last.
     property var times: []
     // When the last answer was given, and the last notification about due words sent (ms).
@@ -96,6 +105,51 @@ Singleton {
                 next = s.due;
         }
         return next;
+    }
+
+    // For the pane's stats: { total, seen, learnt (remembered 21 days or more), streak (days
+    // in a row with answers), recall (share right in the last 7 days, or -1), forecast (words
+    // due on each of the next 7 days, today with those overdue), sections: [{ name, total,
+    // seen, learnt }] }
+    readonly property var stats: {
+        version;
+        const out = { total: items.length, seen: 0, learnt: 0, streak: 0, recall: -1, forecast: [0, 0, 0, 0, 0, 0, 0], sections: [] };
+        const midnight = new Date(now);
+        midnight.setHours(24, 0, 0, 0);
+        const bySection = {};
+        for (const i of items) {
+            const e = sched[i.key];
+            const name = i.card.section;
+            if (!bySection[name]) {
+                bySection[name] = { name, total: 0, seen: 0, learnt: 0 };
+                out.sections.push(bySection[name]);
+            }
+            const sec = bySection[name];
+            sec.total++;
+            if (!e)
+                continue;
+            out.seen++;
+            sec.seen++;
+            if (e.s >= 21) {
+                out.learnt++;
+                sec.learnt++;
+            }
+            const d = Math.max(0, Math.floor((e.due - midnight.getTime()) / day) + 1);
+            if (d < 7)
+                out.forecast[d]++;
+        }
+        const date = n => Qt.formatDate(new Date(now - n * day), "yyyy-MM-dd");
+        let answers = 0, right = 0;
+        for (let n = 0; n < 7; n++) {
+            answers += history[date(n)]?.n ?? 0;
+            right += history[date(n)]?.r ?? 0;
+        }
+        if (answers)
+            out.recall = right / answers;
+        // Today counts once something's answered; until then the streak runs to yesterday.
+        for (let n = history[date(0)]?.n ? 0 : 1; history[date(n)]?.n; n++)
+            out.streak++;
+        return out;
     }
 
     function today(): string {
@@ -319,6 +373,15 @@ Singleton {
             reps: (old?.reps ?? 0) + 1,
             lapses: (old?.lapses ?? 0) + (g === 1 ? 1 : 0)
         };
+        const h = Object.assign({ n: 0, r: 0, w: 0 }, history[today()]);
+        h.n++;
+        h.r += g > 1 ? 1 : 0;
+        h.w += old ? 0 : 1;
+        const days = Object.assign({}, history, { [today()]: h });
+        const kept = {};
+        for (const k of Object.keys(days).sort().slice(-90))
+            kept[k] = days[k];
+        history = kept;
         version++;
         save.restart();
         return ivl;
@@ -352,6 +415,11 @@ Singleton {
         save.restart();
     }
 
+    function setGames(on: bool): void {
+        games = on;
+        save.restart();
+    }
+
     function add(front: string, back: string): bool {
         front = front.trim();
         back = back.trim();
@@ -378,12 +446,24 @@ Singleton {
 
     function parse(text: string): void {
         const out = [];
+        let section = "";
         text.split("\n").forEach((line, i) => {
-            if (/^\s*(#|$)/.test(line))
+            const heading = line.match(/^\s*#\s*(.*?)\s*$/);
+            if (heading) {
+                section = heading[1];
                 return;
-            const m = line.match(/^\s*([^\t]+?)\s*\t\s*([^\t]+?)\s*(\t.*)?$/) ?? line.match(/^\s*(.+?)\s*=\s*(.+?)\s*$/);
+            }
+            if (!line.trim())
+                return;
+            const tab = line.match(/^\s*([^\t]+?)\s*\t\s*([^\t]+?)\s*(?:\t\s*(.*?)\s*)?$/);
+            if (tab) {
+                out.push({ front: tab[1], back: tab[2], hint: tab[3] ?? "", section, line: i });
+                return;
+            }
+            const [main, ...note] = line.split(" # ");
+            const m = main.match(/^\s*(.+?)\s*=\s*(.+?)\s*$/);
             if (m)
-                out.push({ front: m[1], back: m[2], line: i });
+                out.push({ front: m[1], back: m[2], hint: note.join(" # ").trim(), section, line: i });
         });
         cards = out;
         version++;
@@ -440,7 +520,7 @@ Singleton {
         id: save
 
         interval: 500
-        onTriggered: schedFile.setText(JSON.stringify({ lockGate: root.lockGate, bothWays: root.bothWays, random: root.random, times: root.times, lastNotified: root.lastNotified, newDay: root.newDay, newToday: root.newToday, cards: root.sched }) + "\n")
+        onTriggered: schedFile.setText(JSON.stringify({ lockGate: root.lockGate, bothWays: root.bothWays, random: root.random, games: root.games, history: root.history, times: root.times, lastNotified: root.lastNotified, newDay: root.newDay, newToday: root.newToday, cards: root.sched }) + "\n")
     }
 
     FileView {
@@ -464,6 +544,8 @@ Singleton {
                 root.lockGate = s.lockGate === true;
                 root.bothWays = s.bothWays === true;
                 root.random = s.random === true;
+                root.games = s.games !== false;
+                root.history = s.history && typeof s.history === "object" ? s.history : {};
                 root.times = Array.isArray(s.times) ? s.times.filter(t => typeof t === "number") : [];
                 root.lastNotified = s.lastNotified ?? 0;
                 root.newDay = s.newDay ?? "";
@@ -521,6 +603,20 @@ Singleton {
 
         function random(): bool {
             return root.random;
+        }
+
+        function toggleGames(): bool {
+            root.setGames(!root.games);
+            return root.games;
+        }
+
+        function setGames(on: bool): bool {
+            root.setGames(on);
+            return root.games;
+        }
+
+        function games(): bool {
+            return root.games;
         }
 
         function add(word: string, translation: string): string {
