@@ -231,8 +231,8 @@ Singleton {
         const parts = [`output = "${m.name}"`, `mode = "${p.mode ?? `${m.width}x${m.height}@${m.refresh.toFixed(2)}`}"`, `position = "${x}x${y}"`, `scale = ${p.scale ?? m.scale}`];
         if (m.transform)
             parts.push(`transform = ${m.transform}`);
-        if (mirror)
-            parts.push(`mirror = "${mirror}"`);
+        // Always given: a display that mirrors keeps doing so unless told mirror = "".
+        parts.push(`mirror = "${mirror}"`);
         return `hl.monitor({${parts.join(", ")}})`;
     }
 
