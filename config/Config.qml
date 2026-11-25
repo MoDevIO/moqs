@@ -171,6 +171,8 @@ Singleton {
         // Seconds to the first key above which a right answer counts as Hard, until there
         // are ten right answers to compare with.
         readonly property real slow: 6
+        // Hours between notifications about words due for review; 0 turns them off.
+        readonly property real notifyEvery: 3
     }
 
     readonly property QtObject hass: QtObject {

@@ -61,7 +61,7 @@ QtObject {
             if (r.ok) {
                 phase = "right";
                 const next = days === 1 ? "tomorrow" : `in ${days} days`;
-                note = r.note ? `${r.note} · again ${next}` : `Right · again ${next}`;
+                note = r.note ? `${r.note} · again ${next}` : `Again ${next}`;
                 advance.restart();
             } else {
                 phase = "wrong";
@@ -80,7 +80,7 @@ QtObject {
 
     // Leaves "right" on screen for a moment.
     property Timer advance: Timer {
-        interval: 1400
+        interval: 2000
         onTriggered: {
             if (root.gate)
                 root.passed();

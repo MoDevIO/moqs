@@ -20,6 +20,9 @@ import qs.config
 // key is slower than three quarters of the last right answers (Config.vocab.slow seconds
 // until there are a few).
 //
+// While words are due for review, a notification says so (clicking it opens the pane), at
+// most every Config.vocab.notifyEvery hours and not while practising.
+//
 // The schedule is kept in vocab.json next to the words, with the settings. Over IPC:
 //   qs ipc call vocab open                 (the ";" pane)
 //   qs ipc call vocab toggleLock           (also setLock true|false, lockEnabled)
@@ -49,6 +52,9 @@ Singleton {
     property bool random
     // Seconds until the first key in the last right answers, newest last.
     property var times: []
+    // When the last answer was given, and the last notification about due words sent (ms).
+    property real lastAnswer
+    property real lastNotified
     // Bumped whenever cards or sched change, for bindings.
     property int version
     // The time, a minute at a time, for what's due.
@@ -196,7 +202,7 @@ Singleton {
     }
 
     // { ok, note }: right however umlauts are typed, also without accents or with one typo
-    // in a longer word, which the note then points out.
+    // in a longer word, which the note then points out (the whole answer is shown anyway).
     function check(item: var, text: string): var {
         // Brackets typed as shown count too.
         const t = clean(text.replace(/[()]/g, ""));
@@ -207,9 +213,9 @@ Singleton {
         if (ok.some(x => spellings(x).some(v => typed.includes(v))))
             return { ok: true, note: "" };
         if (ok.some(x => bare(x) === bare(t)))
-            return { ok: true, note: `Mind the accents: ${item.answer}` };
+            return { ok: true, note: "Mind the accents" };
         if (ok.some(x => spellings(x).some(v => v.length >= 5 && typed.some(u => distance(v, u) === 1))))
-            return { ok: true, note: `Almost: ${item.answer}` };
+            return { ok: true, note: "Almost: mind the spelling" };
         return { ok: false, note: "" };
     }
 
@@ -281,6 +287,7 @@ Singleton {
     // days until it's asked again, 0 for minutes.
     function grade(item: var, g: int): int {
         now = Date.now();
+        lastAnswer = now;
         const old = upgrade(sched[item.key]);
         let s, d;
         if (!old) {
@@ -381,20 +388,58 @@ Singleton {
         version++;
     }
 
+    // Words due for review: not the ones coming back minutes after a mistake.
+    function reviewsDue(): int {
+        return items.filter(i => {
+            const s = sched[i.key];
+            return s && s.due <= now && s.due - s.last >= day / 2;
+        }).length;
+    }
+
+    // Tells about due words, unless it did lately or they're being practised.
+    function notifyDue(): void {
+        const every = Config.vocab.notifyEvery * 3600000;
+        if (!every || notification.running || now - lastNotified < every || now - lastAnswer < 15 * 60000)
+            return;
+        const n = reviewsDue();
+        if (!n)
+            return;
+        lastNotified = now;
+        save.restart();
+        notification.command = ["notify-send", "-a", "Vocabulary", "-i", "accessories-dictionary", "-A", "default=Practise",
+            `${n} word${n === 1 ? "" : "s"} to review`, newLeft ? `And ${newLeft} new ones. Click to practise.` : "Click to practise."];
+        notification.running = true;
+    }
+
     Component.onCompleted: Quickshell.execDetached(["mkdir", "-p", stateDir])
 
     Timer {
         running: true
         repeat: true
         interval: 60000
-        onTriggered: root.now = Date.now()
+        onTriggered: {
+            root.now = Date.now();
+            root.notifyDue();
+        }
+    }
+
+    // notify-send waits for a click on the notification and prints the action.
+    Process {
+        id: notification
+
+        stdout: StdioCollector {
+            onStreamFinished: {
+                if (text.trim() === "default")
+                    Launcher.showWith(";");
+            }
+        }
     }
 
     Timer {
         id: save
 
         interval: 500
-        onTriggered: schedFile.setText(JSON.stringify({ lockGate: root.lockGate, bothWays: root.bothWays, random: root.random, times: root.times, newDay: root.newDay, newToday: root.newToday, cards: root.sched }) + "\n")
+        onTriggered: schedFile.setText(JSON.stringify({ lockGate: root.lockGate, bothWays: root.bothWays, random: root.random, times: root.times, lastNotified: root.lastNotified, newDay: root.newDay, newToday: root.newToday, cards: root.sched }) + "\n")
     }
 
     FileView {
@@ -419,6 +464,7 @@ Singleton {
                 root.bothWays = s.bothWays === true;
                 root.random = s.random === true;
                 root.times = Array.isArray(s.times) ? s.times.filter(t => typeof t === "number") : [];
+                root.lastNotified = s.lastNotified ?? 0;
                 root.newDay = s.newDay ?? "";
                 root.newToday = s.newToday ?? 0;
                 root.sched = s.cards && typeof s.cards === "object" ? s.cards : {};

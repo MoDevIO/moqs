@@ -128,23 +128,37 @@ ColumnLayout {
         }
     }
 
-    // The right answer after a wrong one, or a tick after a right one.
+    // The whole answer once answered: red after a wrong one, to type out, green with a tick
+    // after a right one, so the other meanings show too.
     Text {
         Layout.fillWidth: true
         horizontalAlignment: Text.AlignHCenter
         wrapMode: Text.Wrap
         opacity: root.item && root.phase !== "ask" ? 1 : 0
-        text: root.phase === "wrong" ? root.item?.answer ?? "" : root.phase === "right" ? `\u{F012C}  ${root.session.note || "Right"}` : " "
+        text: !root.item || root.phase === "ask" ? " " : root.phase === "right" ? `\u{F012C} ${root.item.answer}` : root.item.answer
         color: root.phase === "wrong" ? Config.colours.red : Config.colours.green
         font.family: Config.font.family
-        font.pointSize: root.phase === "wrong" ? Config.font.size + 4 : Config.font.size
-        font.bold: root.phase === "wrong"
+        font.pointSize: Config.font.size + 4
+        font.bold: true
 
         Behavior on opacity {
             NumberAnimation {
                 duration: 150
             }
         }
+    }
+
+    // Under a right answer: anything about how it was typed, and when it's asked again.
+    Text {
+        Layout.fillWidth: true
+        Layout.topMargin: -6
+        visible: root.phase === "right"
+        horizontalAlignment: Text.AlignHCenter
+        wrapMode: Text.Wrap
+        text: root.session.note
+        color: Config.colours.subtext
+        font.family: Config.font.family
+        font.pointSize: Config.font.small
     }
 
     Rectangle {
