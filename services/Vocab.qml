@@ -108,11 +108,12 @@ Singleton {
 
     // The next word to ask: due ones first, then new ones (so many a day). For the lock,
     // which always needs one, any other word when none is due. Never the word of `exclude`
-    // (a key), either way round, if there's another.
-    function pick(gate: bool, exclude: string): var {
+    // (a key), either way round, if there's another, nor those in `skip` (keys), which a
+    // session asks again itself.
+    function pick(gate: bool, exclude: string, skip: var): var {
         now = Date.now();
         const word = exclude.slice(0, -1);
-        const all = items.filter(i => !exclude || i.key.slice(0, -1) !== word);
+        const all = items.filter(i => (!exclude || i.key.slice(0, -1) !== word) && !(skip ?? []).includes(i.key));
         const due = all.filter(i => sched[i.key] && sched[i.key].due <= now);
         if (due.length)
             return random ? any(due) : due.sort((a, b) => sched[a.key].due - sched[b.key].due)[0];
