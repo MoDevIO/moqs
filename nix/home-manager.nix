@@ -177,7 +177,6 @@ in
             grim
             hyprsunset
             libnotify
-            slurp
             wf-recorder
             wl-clipboard
             xdg-utils
