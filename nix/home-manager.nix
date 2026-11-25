@@ -160,6 +160,11 @@ in
 
         xdg.configFile."quickshell".source = shell;
 
+        # The running shell keeps the files it started from when a rebuild repoints the
+        # symlink above, so restart it whenever the shell changes. X-Restart-Triggers
+        # changes the unit, and Home Manager restarts changed units on activation.
+        systemd.user.services.quickshell.Unit.X-Restart-Triggers = [ "${shell}" ];
+
         # Programs the shell runs.
         home.packages =
           with pkgs;
