@@ -192,10 +192,23 @@ Item {
                     onExpandClicked: root.toggle("visualizer", expandButton)
                 }
 
+                // How the bar shows workspaces; white unless dots, click cycles the styles.
+                Tile {
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: 1
+                    checked: WorkspaceStyle.style !== "dots"
+                    icon: WorkspaceStyle.icon(WorkspaceStyle.style)
+                    title: "Workspaces"
+                    subtitle: WorkspaceStyle.name(WorkspaceStyle.style)
+                    expanded: root.expanded === "workspaces"
+                    onClicked: WorkspaceStyle.cycle()
+                    onExpandClicked: root.toggle("workspaces", expandButton)
+                }
+
                 // Clipboard history; the whole tile opens it.
                 Tile {
                     Layout.fillWidth: true
-                    Layout.columnSpan: 2
+                    Layout.preferredWidth: 1
                     icon: "\u{F014C}"
                     title: "Clipboard"
                     subtitle: !Clipboard.available ? "cliphist isn't installed" : Clipboard.describe(Clipboard.entries[0]) || "Nothing copied yet"
@@ -257,7 +270,7 @@ Item {
 
         Loader {
             width: parent.width
-            sourceComponent: ({ wifi: wifiList, bluetooth: bluetoothList, airdrop: airdropList, power: powerList, visualizer: visualizerSettings, audio: audioList, clipboard: clipboardList })[root.expanded] ?? null
+            sourceComponent: ({ wifi: wifiList, bluetooth: bluetoothList, airdrop: airdropList, power: powerList, workspaces: workspaceStyleList, visualizer: visualizerSettings, audio: audioList, clipboard: clipboardList })[root.expanded] ?? null
         }
     }
 
@@ -306,6 +319,15 @@ Item {
         id: powerList
 
         PowerProfileList {
+            color: "transparent"
+            onPicked: popover.close()
+        }
+    }
+
+    Component {
+        id: workspaceStyleList
+
+        WorkspaceStyleList {
             color: "transparent"
             onPicked: popover.close()
         }

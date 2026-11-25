@@ -7,7 +7,7 @@ import Quickshell.Io
 
 // How the bar shows workspaces: "dots", "icons" (the icon of each workspace's largest
 // window) or "numbers". Kept in $XDG_STATE_HOME/moqs/workspaces as { "style": "icons" }.
-// Over IPC:
+// Picked in the control centre, or over IPC:
 //   qs ipc call workspaces toggleIcons     (icons <-> dots; also toggleNumbers)
 //   qs ipc call workspaces set numbers     (dots, icons or numbers)
 //   qs ipc call workspaces get
@@ -31,6 +31,18 @@ Singleton {
 
     function toggle(s: string): void {
         set(style === s ? "dots" : s);
+    }
+
+    function cycle(): void {
+        set(styles[(styles.indexOf(style) + 1) % styles.length]);
+    }
+
+    function name(s: string): string {
+        return ({ dots: "Dots", icons: "App icons", numbers: "Numbers" })[s] ?? s;
+    }
+
+    function icon(s: string): string {
+        return ({ dots: "\u{F01D8}", icons: "\u{F003B}", numbers: "\u{F03A0}" })[s] ?? "";
     }
 
     // The class of the largest window on each workspace, by id. Window sizes come from the
