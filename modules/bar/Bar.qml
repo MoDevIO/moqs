@@ -25,6 +25,22 @@ Item {
         onClicked: root.clockClicked()
     }
 
+    // Left of the clock: a recording running, and timers.
+    Row {
+        anchors.right: clock.left
+        anchors.rightMargin: 14
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: 14
+
+        RecordingDot {
+            anchors.verticalCenter: parent.verticalCenter
+        }
+
+        TimerCountdown {
+            anchors.verticalCenter: parent.verticalCenter
+        }
+    }
+
     VocabDue {
         anchors.left: clock.right
         anchors.leftMargin: 14
@@ -36,6 +52,11 @@ Item {
         anchors.rightMargin: Config.bar.padding
         anchors.verticalCenter: parent.verticalCenter
         spacing: 14
+
+        UpdatesDue {
+            anchors.verticalCenter: parent.verticalCenter
+            onClicked: root.clockClicked()
+        }
 
         NetSpeed {
             anchors.verticalCenter: parent.verticalCenter

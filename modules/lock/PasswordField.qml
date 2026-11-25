@@ -19,6 +19,8 @@ ColumnLayout {
     signal submitted(string text)
     // Typing again after a failure.
     signal edited
+    // Escape in an empty field (a first Escape clears it).
+    signal escaped
 
     function fail(): void {
         input.text = "";
@@ -124,7 +126,12 @@ ColumnLayout {
 
             onAccepted: if (text) root.submitted(text)
             onTextChanged: if (text && root.failed) root.edited()
-            Keys.onEscapePressed: text = ""
+            Keys.onEscapePressed: {
+                if (text)
+                    text = "";
+                else
+                    root.escaped();
+            }
 
             Text {
                 anchors.verticalCenter: parent.verticalCenter

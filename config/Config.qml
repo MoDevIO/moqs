@@ -175,6 +175,16 @@ Singleton {
         readonly property real notifyEvery: 3
     }
 
+    readonly property QtObject capture: QtObject {
+        // Where screenshots and recordings go.
+        readonly property string dir: "~/Pictures/Screenshots"
+    }
+
+    readonly property QtObject updates: QtObject {
+        // Days nixpkgs is behind its branch before the bar shows it.
+        readonly property int days: 3
+    }
+
     readonly property QtObject hass: QtObject {
         // Seconds between Home Assistant updates while the dashboard is open.
         readonly property int poll: 5

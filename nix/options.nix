@@ -104,6 +104,26 @@ in
     '';
   };
 
+  updates = {
+    flake = mkOption {
+      type = types.nullOr types.str;
+      default = null;
+      example = "/home/me/nixos-config";
+      description = ''
+        The system flake (a local checkout) the control centre's Updates tile looks after: it
+        shows how far its nixpkgs is behind, and runs `nix flake update` and a rebuild, asking
+        for the password through the shell's polkit agent. Without it the tile is hidden.
+      '';
+    };
+
+    host = mkOption {
+      type = types.nullOr types.str;
+      default = null;
+      example = "laptop";
+      description = "The `nixosConfigurations` name to build; this machine's hostname without it.";
+    };
+  };
+
   airdrop.name = mkOption {
     type = types.nullOr types.str;
     default = null;

@@ -40,6 +40,7 @@ let
           inherit (cfg) dragToOpen;
           launcher.search = cfg.launcher.searchEngine;
           lock.pam = cfg.lock.pamService;
+          updates = lib.filterAttrs (_: v: v != null) { inherit (cfg.updates) flake host; };
         }
       )
     } $out/settings.json
@@ -173,9 +174,13 @@ in
             cava
             cliphist
             curl
+            grim
             hyprsunset
             libnotify
+            slurp
+            wf-recorder
             wl-clipboard
+            xdg-utils
           ]
           ++ lib.optional cfg.navidrome.enable mpv
           ++ lib.optional cfg.matrix.enable gomuks-web;

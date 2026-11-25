@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Io
 import qs.config
 import qs.modules
+import qs.modules.capture
 import qs.modules.lock
 import qs.modules.vocab
 
@@ -18,6 +19,9 @@ ShellRoot {
 
     // Steam games wait behind a vocabulary word.
     GameGateScreen {}
+
+    // Picking what to screenshot or record.
+    CaptureSelect {}
 
     // One shell at a time: two would each reserve the frame's space, doubling the margins.
     // The newest wins, so starting a copy (qs -p .) replaces the installed one and a rebuild

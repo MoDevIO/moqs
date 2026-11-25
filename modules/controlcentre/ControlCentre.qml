@@ -205,6 +205,79 @@ Item {
                     onExpandClicked: root.toggle("workspaces", expandButton)
                 }
 
+                // A region screenshot, or the list of captures; while recording, stops it.
+                Tile {
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: 1
+                    checked: Capture.recording
+                    icon: Capture.recording ? "\u{F0666}" : "\u{F0100}"
+                    title: Capture.recording ? "Recording" : "Capture"
+                    subtitle: Capture.recording ? `${Capture.elapsed} · click stops` : "Click, then pick a window or region"
+                    expanded: root.expanded === "capture"
+                    onClicked: {
+                        if (Capture.recording) {
+                            Capture.stop();
+                        } else {
+                            root.open = false;
+                            Capture.screenshot("pick");
+                        }
+                    }
+                    onExpandClicked: root.toggle("capture", expandButton)
+                }
+
+                // The system flake: how far behind, and updating it (asked twice, as it takes a while).
+                Tile {
+                    id: updatesTile
+
+                    property bool confirming
+                    property real tick: Date.now()
+
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: 1
+                    visible: Updates.configured
+                    expandable: false
+                    checked: Updates.running || Updates.behind >= Config.updates.days
+                    icon: "\u{F1105}"
+                    title: "Updates"
+                    subtitle: {
+                        if (Updates.running)
+                            return `${Updates.stepName}… ${Math.max(0, Math.floor((tick - Updates.startedAt) / 60000))} min`;
+                        if (confirming)
+                            return "Click again to update";
+                        const last = Updates.step === "failed" ? "Last update failed · " : "";
+                        if (Updates.behind < 0)
+                            return last + (Updates.checkError || "Checking…");
+                        return last + (Updates.behind === 0 ? "Up to date" : `nixpkgs ${Updates.behind} day${Updates.behind === 1 ? "" : "s"} behind`);
+                    }
+                    onClicked: {
+                        if (Updates.running)
+                            return;
+                        if (!confirming) {
+                            confirming = true;
+                            confirmTimer.restart();
+                            return;
+                        }
+                        confirming = false;
+                        Updates.update();
+                    }
+
+                    Timer {
+                        id: confirmTimer
+
+                        interval: 3000
+                        onTriggered: updatesTile.confirming = false
+                    }
+
+                    // Keeps the minutes running.
+                    Timer {
+                        running: Updates.running && root.open
+                        repeat: true
+                        triggeredOnStart: true
+                        interval: 30000
+                        onTriggered: updatesTile.tick = Date.now()
+                    }
+                }
+
                 // Clipboard history; the whole tile opens it.
                 Tile {
                     Layout.fillWidth: true
@@ -270,7 +343,7 @@ Item {
 
         Loader {
             width: parent.width
-            sourceComponent: ({ wifi: wifiList, bluetooth: bluetoothList, airdrop: airdropList, power: powerList, workspaces: workspaceStyleList, visualizer: visualizerSettings, audio: audioList, clipboard: clipboardList })[root.expanded] ?? null
+            sourceComponent: ({ wifi: wifiList, bluetooth: bluetoothList, airdrop: airdropList, power: powerList, workspaces: workspaceStyleList, capture: captureList, visualizer: visualizerSettings, audio: audioList, clipboard: clipboardList })[root.expanded] ?? null
         }
     }
 
@@ -321,6 +394,15 @@ Item {
         PowerProfileList {
             color: "transparent"
             onPicked: popover.close()
+        }
+    }
+
+    Component {
+        id: captureList
+
+        CaptureList {
+            color: "transparent"
+            onPicked: root.open = false
         }
     }
 

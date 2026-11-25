@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Wayland
 import qs.config
+import qs.modules.auth
 import qs.modules.bar
 import qs.modules.controlcentre
 import qs.modules.controlcentre as CC
@@ -50,7 +51,7 @@ Scope {
         WlrLayershell.exclusionMode: ExclusionMode.Ignore
         // Lets text fields (Wi-Fi password, music search, messages, homework) take typing while their panel is open.
         // A Matrix reply, the launcher and the session menu take the keyboard outright, so their fields get it without a click.
-        WlrLayershell.keyboardFocus: matrix.replying || launcher.open || sessionMenu.open || overview.open || displays.open ? WlrKeyboardFocus.Exclusive : cc.open || music.open || matrix.open || dash.open ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
+        WlrLayershell.keyboardFocus: auth.open || matrix.replying || launcher.open || sessionMenu.open || overview.open || displays.open ? WlrKeyboardFocus.Exclusive : cc.open || music.open || matrix.open || dash.open ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
 
         anchors {
             top: true
@@ -101,6 +102,11 @@ Scope {
 
             Region {
                 item: sessionMenu
+                intersection: Intersection.Subtract
+            }
+
+            Region {
+                item: auth
                 intersection: Intersection.Subtract
             }
 
@@ -428,6 +434,25 @@ Scope {
                     Launcher.open = false;
                     Lock.menuOpen = false;
                     Overview.open = false;
+                }
+            }
+
+            // A polkit request takes the control centre's spot over anything there.
+            AuthPane {
+                id: auth
+
+                open: Auth.on(root.modelData)
+                anchors.top: parent.top
+                anchors.topMargin: root.top
+                anchors.horizontalCenter: parent.horizontalCenter
+                onOpenChanged: if (open) {
+                    cc.open = false;
+                    Owly.closeSend();
+                    Launcher.open = false;
+                    Lock.menuOpen = false;
+                    Overview.open = false;
+                    if (Displays.open)
+                        Displays.close();
                 }
             }
 

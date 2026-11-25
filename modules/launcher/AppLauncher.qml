@@ -12,7 +12,7 @@ import qs.services
 // App launcher that grows out of the middle of the bar. Typing filters the apps, the ones
 // used most first, with matching Matrix rooms and recent files among them; Enter or a click
 // starts or opens one, arrows (or Tab) move, Escape closes. A first character switches mode:
-//   = calculate or convert units ("5 km in mi"; Enter copies)
+//   = calculate or convert units ("5 km in mi"; Enter copies), or start a timer ("10m tea")
 //   ! run a command (Shift+Enter in a terminal)
 //   > Home Assistant ("desk lamp off", "desk lamp 40", "heater 21", "lights off")
 //   ? search the web or open a URL  : find an emoji (Enter copies)
@@ -108,6 +108,10 @@ Item {
         const q = rest.toLowerCase();
         switch (mode) {
         case "calc": {
+            // A time ("10m", "1h30 tea") starts a timer.
+            const t = Timers.parse(rest);
+            if (t)
+                return [{ kind: "timer", ms: t.ms, label: t.label }];
             const c = Launcher.convert(rest);
             if (c)
                 return [{ kind: "calc", expr: rest, result: c.error ? "" : Launcher.formatNumber(Number(c.value.toPrecision(7))), unit: c.unit ?? "", error: c.error ?? "" }];
@@ -231,6 +235,9 @@ Item {
                 return;
             copy(item.result);
             break;
+        case "timer":
+            Timers.start(item.ms, item.label);
+            break;
         case "run":
             if (!item.command)
                 return;
@@ -286,6 +293,8 @@ Item {
             return item.file.name;
         case "calc":
             return item.result ? `= ${item.result}${item.unit ? " " + item.unit : ""}` : item.error || (item.expr ? "…" : "Type a calculation or 5 km in mi");
+        case "timer":
+            return `Start a ${Timers.format(item.ms)} timer${item.label ? ` · ${item.label}` : ""}`;
         case "run":
             return item.command || "Type a command";
         case "web":
@@ -330,6 +339,8 @@ Item {
             return item.file.dir;
         case "calc":
             return item.result ? "Enter copies" : "";
+        case "timer":
+            return "Counts down beside the clock";
         case "run":
             return item.command ? "Enter runs · Shift+Enter in a terminal" : "";
         case "web":
@@ -361,7 +372,7 @@ Item {
     }
 
     // Glyph for rows without an app icon, avatar or emoji.
-    readonly property var glyphs: ({ calc: "\u{F00EC}", run: "\u{F018D}", web: "\u{F0349}", url: "\u{F059F}", nix: "\u{F1105}", nixinfo: "\u{F1105}", hassinfo: "\u{F07D0}", replyinfo: "\u{F0368}" })
+    readonly property var glyphs: ({ calc: "\u{F00EC}", timer: "\u{F13AB}", run: "\u{F018D}", web: "\u{F0349}", url: "\u{F059F}", nix: "\u{F1105}", nixinfo: "\u{F1105}", hassinfo: "\u{F07D0}", replyinfo: "\u{F0368}" })
 
     readonly property int rowHeight: Config.launcher.row
     readonly property real targetWidth: open ? Config.launcher.width : Config.launcher.seed
@@ -635,7 +646,7 @@ Item {
                 Layout.fillWidth: true
                 visible: root.query === ""
                 horizontalAlignment: Text.AlignHCenter
-                text: "= calc   ! run   > home   ? web   : emoji   ; words   / files   # nixpkgs   @ reply"
+                text: "= calc/timer   ! run   > home   ? web   : emoji   ; words   / files   # nixpkgs   @ reply"
                 color: Config.colours.muted
                 font.family: Config.font.family
                 font.pointSize: Config.font.small
