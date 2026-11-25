@@ -158,6 +158,21 @@ Singleton {
         readonly property real opacity: 0.55
     }
 
+    readonly property QtObject vocab: QtObject {
+        // New words a day, minutes until a wrong one is asked again, and seconds the lock's
+        // word step waits before offering an emergency unlock.
+        readonly property int newPerDay: 20
+        readonly property int relearn: 10
+        readonly property int emergency: 60
+        // FSRS: the chance of still remembering a word when it's asked again, and the most
+        // days between two asks.
+        readonly property real retention: 0.9
+        readonly property int maxInterval: 365
+        // Seconds to the first key above which a right answer counts as Hard, until there
+        // are ten right answers to compare with.
+        readonly property real slow: 6
+    }
+
     readonly property QtObject hass: QtObject {
         // Seconds between Home Assistant updates while the dashboard is open.
         readonly property int poll: 5
@@ -190,6 +205,8 @@ Singleton {
         readonly property color red: "#ff5f57"
         readonly property color orange: "#ff9f43"
         readonly property color yellow: "#f9d65c"
+        // A right answer.
+        readonly property color green: "#5fd068"
     }
 
     readonly property QtObject hyprland: QtObject {

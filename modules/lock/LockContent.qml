@@ -4,15 +4,34 @@ import Quickshell
 import qs.config
 import qs.services
 import qs.modules.controlcentre as CC
+import qs.modules.vocab
 
 // What the lock screen shows: the time, the password field, and below a few things from the
 // dashboard (weather, the next lesson, what's due) and the music playing, with its controls.
-// Typing anywhere goes to the password field.
+// Typing anywhere goes to the password field, or after it to the word asked (Lock.gate).
 Item {
     id: root
 
     readonly property bool failed: Lock.state === "failed"
     readonly property bool checking: Lock.state === "checking"
+    readonly property bool vocab: Lock.state === "vocab"
+    // Seconds until the emergency unlock works.
+    property int emergencyLeft
+
+    function focusInput(): void {
+        if (vocab)
+            quiz.focusInput();
+        else
+            field.focusField();
+    }
+
+    Timer {
+        running: root.vocab && !Lock.emergencyReady
+        repeat: true
+        triggeredOnStart: true
+        interval: 250
+        onTriggered: root.emergencyLeft = Math.max(0, Math.ceil((Lock.vocabSince + Config.vocab.emergency * 1000 - Date.now()) / 1000))
+    }
 
     // The lesson running now or next, today or on the next school day.
     readonly property var nextLesson: {
@@ -42,13 +61,16 @@ Item {
         function onStateChanged(): void {
             if (Lock.state === "failed")
                 field.fail();
+            else if (Lock.state === "vocab")
+                // Once the card is shown; a hidden field can't take the focus.
+                Qt.callLater(quiz.focusInput);
         }
     }
 
-    // A click anywhere puts the focus back in the password field.
+    // A click anywhere puts the focus back in the field.
     MouseArea {
         anchors.fill: parent
-        onClicked: field.focusField()
+        onClicked: root.focusInput()
     }
 
     ColumnLayout {
@@ -65,11 +87,45 @@ Item {
             id: field
 
             Layout.alignment: Qt.AlignHCenter
+            visible: !root.vocab
             checking: root.checking
             failed: root.failed
             message: root.failed ? Lock.message : ""
             onSubmitted: text => Lock.unlock(text)
             onEdited: Lock.state = "idle"
+        }
+
+        ColumnLayout {
+            Layout.alignment: Qt.AlignHCenter
+            Layout.preferredWidth: 420
+            visible: root.vocab
+            spacing: 22
+
+            VocabQuiz {
+                id: quiz
+
+                Layout.fillWidth: true
+                session: Lock.gate
+            }
+
+            Text {
+                Layout.alignment: Qt.AlignHCenter
+                text: Lock.emergencyReady ? "\u{F0026}  Emergency unlock" : `Emergency unlock in ${root.emergencyLeft} s`
+                color: !Lock.emergencyReady ? Config.colours.muted : emergency.containsMouse ? Config.colours.text : Config.colours.subtext
+                font.family: Config.font.family
+                font.pointSize: Config.font.small
+
+                MouseArea {
+                    id: emergency
+
+                    anchors.fill: parent
+                    anchors.margins: -6
+                    enabled: Lock.emergencyReady
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: Lock.emergencyUnlock()
+                }
+            }
         }
     }
 

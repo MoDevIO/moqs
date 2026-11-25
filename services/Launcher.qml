@@ -8,8 +8,7 @@ import Quickshell.Io
 // The app launcher, which grows out of the bar on the focused monitor. Opened over IPC:
 //   qs ipc call launcher toggle   (open, close)
 // How often and when each app was started is kept in $XDG_STATE_HOME/moqs/launcher.json, so
-// the ones used most rank first. Snippets live next to it in snippets.txt, one per line as
-// "name: text" ("\n" for a line break). Recent files come from the list GTK apps share,
+// the ones used most rank first. Recent files come from the list GTK apps share,
 // ~/.local/share/recently-used.xbel. "#" searches nixpkgs, from an index of `nix search
 // nixpkgs ^` kept in $XDG_CACHE_HOME/moqs/nixpkgs.json and rebuilt when it's three days old.
 Singleton {
@@ -19,35 +18,8 @@ Singleton {
 
     // [[emoji, description, aliases, tags]], from gemoji.
     property var emoji: []
-    // [{ name, text }]
-    property var snippets: []
     // Newest first: [{ url, path, name, dir, mime, time }]
     property var recentFiles: []
-
-    function parseSnippets(text: string): void {
-        const out = [];
-        for (const line of text.split("\n")) {
-            const m = line.match(/^\s*([^#:][^:]*?)\s*:\s?(.*)$/);
-            if (m)
-                out.push({ name: m[1], text: m[2].replace(/\\n/g, "\n") });
-        }
-        snippets = out;
-    }
-
-    function saveSnippets(list: var): void {
-        snippets = list;
-        const lines = ["# moqs snippets, one per line as \"name: text\"; \\n is a line break.", ...list.map(x => `${x.name.replace(/:/g, "")}: ${x.text.replace(/\n/g, "\\n")}`)];
-        snippetsFile.setText(lines.join("\n") + "\n");
-    }
-
-    // Saves a snippet, replacing one of the same name.
-    function addSnippet(name: string, text: string): void {
-        saveSnippets([...snippets.filter(x => x.name.toLowerCase() !== name.toLowerCase()), { name, text }]);
-    }
-
-    function removeSnippet(name: string): void {
-        saveSnippets(snippets.filter(x => x.name !== name));
-    }
 
     function parseRecent(xml: string): void {
         const home = Quickshell.env("HOME");
@@ -298,6 +270,13 @@ Singleton {
     property bool open
     // Monitor it opened on; it stays there even if focus moves.
     property string screen
+    // What the search starts with when it opens, e.g. ";" for the vocabulary pane.
+    property string initial
+
+    function showWith(text: string): void {
+        initial = text;
+        show();
+    }
 
     function show(): void {
         screen = Hyprland.focusedMonitor?.name ?? "";
@@ -492,16 +471,6 @@ case "$err" in *unfree*) err=$(NIXPKGS_ALLOW_UNFREE=1 nix run --impure "nixpkgs#
                 root.emoji = JSON.parse(text());
             } catch (e) {}
         }
-    }
-
-    FileView {
-        id: snippetsFile
-
-        path: `${root.stateDir}/snippets.txt`
-        watchChanges: true
-        printErrors: false
-        onFileChanged: reload()
-        onLoaded: root.parseSnippets(text())
     }
 
     FileView {

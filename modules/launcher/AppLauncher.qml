@@ -6,6 +6,7 @@ import qs.config
 import qs.modules.controlcentre as CC
 import qs.modules.matrix as MX
 import qs.modules
+import qs.modules.vocab
 import qs.services
 
 // App launcher that grows out of the middle of the bar. Typing filters the apps, the ones
@@ -15,7 +16,7 @@ import qs.services
 //   ! run a command (Shift+Enter in a terminal)
 //   > Home Assistant ("desk lamp off", "desk lamp 40", "heater 21", "lights off")
 //   ? search the web or open a URL  : find an emoji (Enter copies)
-//   ; snippets (Enter copies; "name: text" saves one, Ctrl+Delete removes)
+//   ; vocabulary practice ("+word = translation" adds one, Ctrl+Delete removes)
 //   / recent files                  # nixpkgs, started with nix run (Shift+Enter in a terminal)
 //   @ send a Matrix message: "@room message" (Enter sends; without a message, opens the room)
 Item {
@@ -52,11 +53,19 @@ Item {
 
     readonly property string query: search.text.trim()
     // "apps", "calc" or "run", from the first character.
-    readonly property var prefixes: ({ "=": "calc", "!": "run", ">": "hass", "?": "web", ":": "emoji", ";": "snippet", "/": "file", "#": "nix", "@": "reply" })
+    readonly property var prefixes: ({ "=": "calc", "!": "run", ">": "hass", "?": "web", ":": "emoji", ";": "vocab", "/": "file", "#": "nix", "@": "reply" })
     readonly property string mode: prefixes[query.charAt(0)] ?? "apps"
     // "#" loads (and, if it's old, rebuilds) the nixpkgs index. Searching its 100 000-odd
     // packages waits for a pause in typing, so keys don't lag.
     onModeChanged: {
+        // ";" asks a word; typing goes to its field.
+        if (mode === "vocab") {
+            vocabSession.start();
+            // Once the card is shown; a hidden field can't take the focus.
+            Qt.callLater(quiz.focusInput);
+        } else {
+            vocabSession.stop();
+        }
         if (mode === "nix") {
             Launcher.indexNixpkgs();
             Launcher.checkNixCached();
@@ -94,7 +103,7 @@ Item {
     }
 
     // What the list shows: [{ kind: "app" | "room" | "file" | "calc" | "run" | "web" | "url"
-    // | "emoji" | "snippet" | "save", … }]
+    // | "emoji", … }]; nothing for ";", which shows a card instead.
     readonly property var shown: {
         const q = rest.toLowerCase();
         switch (mode) {
@@ -148,14 +157,8 @@ Item {
             }
             return out.sort((a, b) => b.score - a.score).slice(0, 60);
         }
-        case "snippet": {
-            const out = Launcher.snippets.filter(x => !q || x.name.toLowerCase().includes(q) || x.text.toLowerCase().includes(q)).map(x => ({ kind: "snippet", snippet: x }));
-            // "name: text" saves a snippet.
-            const m = rest.match(/^([^:]+?)\s*:\s*(.+)$/);
-            if (m)
-                out.unshift({ kind: "save", name: m[1], text: m[2] });
-            return out;
-        }
+        case "vocab":
+            return [];
         case "file":
             return files(q, 60, 0);
         case "nix": {
@@ -247,13 +250,6 @@ Item {
         case "emoji":
             copy(item.emoji[0]);
             break;
-        case "snippet":
-            copy(item.snippet.text);
-            break;
-        case "save":
-            Launcher.addSnippet(item.name, item.text);
-            search.text = ";";
-            return;
         case "nix":
             Launcher.runNix(item.pkg[0], terminal);
             break;
@@ -298,10 +294,6 @@ Item {
             return item.url.replace(/^https?:\/\//i, "");
         case "emoji":
             return item.emoji[1].charAt(0).toUpperCase() + item.emoji[1].slice(1);
-        case "snippet":
-            return item.snippet.name;
-        case "save":
-            return `Save snippet "${item.name}"`;
         case "nix":
             return item.pkg[0];
         case "reply":
@@ -346,10 +338,6 @@ Item {
             return "Open";
         case "emoji":
             return item.emoji[2].split(" ").map(a => `:${a}:`).join(" ");
-        case "snippet":
-            return item.snippet.text.replace(/\n/g, " ⏎ ");
-        case "save":
-            return item.text;
         case "nix":
             return [item.cached ? "In the store" : "", item.pkg[2], item.pkg[3]].filter(x => x).join(" · ");
         case "reply":
@@ -373,15 +361,33 @@ Item {
     }
 
     // Glyph for rows without an app icon, avatar or emoji.
-    readonly property var glyphs: ({ calc: "\u{F00EC}", run: "\u{F018D}", web: "\u{F0349}", url: "\u{F059F}", snippet: "\u{F09ED}", save: "\u{F0415}", nix: "\u{F1105}", nixinfo: "\u{F1105}", hassinfo: "\u{F07D0}", replyinfo: "\u{F0368}" })
+    readonly property var glyphs: ({ calc: "\u{F00EC}", run: "\u{F018D}", web: "\u{F0349}", url: "\u{F059F}", nix: "\u{F1105}", nixinfo: "\u{F1105}", hassinfo: "\u{F07D0}", replyinfo: "\u{F0368}" })
 
     readonly property int rowHeight: Config.launcher.row
     readonly property real targetWidth: open ? Config.launcher.width : Config.launcher.seed
     readonly property real targetHeight: open ? content.implicitHeight : 0
 
+    // VocabSession for the ";" pane.
+    VocabSession {
+        id: vocabSession
+    }
+
+    // Opened with text already in the search, e.g. ";" (Launcher.showWith).
+    Connections {
+        target: Launcher
+
+        function onInitialChanged(): void {
+            if (root.open && Launcher.initial) {
+                search.text = Launcher.initial;
+                Launcher.initial = "";
+            }
+        }
+    }
+
     onOpenChanged: {
         if (open) {
-            search.text = "";
+            search.text = Launcher.initial;
+            Launcher.initial = "";
             list.currentIndex = 0;
             list.positionViewAtBeginning();
             search.forceActiveFocus();
@@ -462,14 +468,6 @@ Item {
 
                     onTextChanged: list.currentIndex = 0
                     Keys.onReturnPressed: event => root.activate(root.shown[list.currentIndex], event.modifiers & Qt.ShiftModifier)
-                    // Ctrl+Delete removes the selected snippet.
-                    Keys.onDeletePressed: event => {
-                        const item = root.shown[list.currentIndex];
-                        if (event.modifiers & Qt.ControlModifier && item?.kind === "snippet")
-                            Launcher.removeSnippet(item.snippet.name);
-                        else
-                            event.accepted = false;
-                    }
                     Keys.onEnterPressed: event => root.activate(root.shown[list.currentIndex], event.modifiers & Qt.ShiftModifier)
                     Keys.onDownPressed: list.incrementCurrentIndex()
                     Keys.onUpPressed: list.decrementCurrentIndex()
@@ -484,6 +482,22 @@ Item {
                         color: Config.colours.muted
                         font: search.font
                     }
+                }
+            }
+
+            VocabQuiz {
+                id: quiz
+
+                Layout.fillWidth: true
+                Layout.leftMargin: 6
+                Layout.rightMargin: 6
+                visible: root.mode === "vocab"
+                session: vocabSession
+                manage: true
+                onEscaped: root.closed()
+                onBackedOut: {
+                    search.text = "";
+                    search.forceActiveFocus();
                 }
             }
 
@@ -609,8 +623,8 @@ Item {
             Text {
                 Layout.fillWidth: true
                 Layout.leftMargin: 14
-                visible: list.count === 0
-                text: root.mode === "snippet" ? "No snippets yet: type ;name: text to save one" : root.mode === "file" ? "No recent files match" : "Nothing matches"
+                visible: list.count === 0 && root.mode !== "vocab"
+                text: root.mode === "file" ? "No recent files match" : "Nothing matches"
                 color: Config.colours.subtext
                 font.family: Config.font.family
                 font.pointSize: Config.font.small
@@ -621,7 +635,7 @@ Item {
                 Layout.fillWidth: true
                 visible: root.query === ""
                 horizontalAlignment: Text.AlignHCenter
-                text: "= calc   ! run   > home   ? web   : emoji   ; snippets   / files   # nixpkgs   @ reply"
+                text: "= calc   ! run   > home   ? web   : emoji   ; words   / files   # nixpkgs   @ reply"
                 color: Config.colours.muted
                 font.family: Config.font.family
                 font.pointSize: Config.font.small
