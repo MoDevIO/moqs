@@ -29,6 +29,11 @@ Singleton {
         readonly property int slot: 18
         readonly property int dot: 6
         readonly property int activeDot: 10
+        // Width each workspace takes as an icon or number, the icon's size, and the size of
+        // the active number's disc.
+        readonly property int wideSlot: 28
+        readonly property int icon: 16
+        readonly property int activeBadge: 24
     }
 
     readonly property QtObject notifs: QtObject {

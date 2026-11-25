@@ -1,12 +1,14 @@
 import QtQuick
 import Quickshell
 import Quickshell.Hyprland
+import Quickshell.Widgets
 import qs.config
 import qs.services
 
-// Workspaces of this bar's monitor as dots, numbered 1..perMonitor. Occupied dots are
-// brighter than empty ones; a white dot slides to the active workspace. A right click opens
-// the workspace overview.
+// Workspaces of this bar's monitor, numbered 1..perMonitor, as dots, as the icon of each
+// one's largest window, or as numbers (WorkspaceStyle, set over IPC). Occupied ones are
+// brighter than empty ones; a white dot slides to the active workspace, unless it shows an
+// icon, which is then bigger and brighter than the rest. A right click opens the workspace overview.
 Item {
     id: root
 
@@ -15,6 +17,8 @@ Item {
     readonly property HyprlandMonitor monitor: Hyprland.monitorFor(screen)
     readonly property int base: (monitor?.id ?? 0) * Config.workspaces.perMonitor
     readonly property int activeId: monitor?.activeWorkspace?.id ?? -1
+    readonly property string style: WorkspaceStyle.style
+    readonly property bool dots: style === "dots"
 
     readonly property var occupied: {
         const ids = {};
@@ -48,13 +52,22 @@ Item {
     Rectangle {
         id: indicator
 
-        width: Config.workspaces.activeDot
+        width: root.style === "numbers" ? Config.workspaces.activeBadge : Config.workspaces.activeDot
         height: width
         y: (root.height - height) / 2
         radius: width / 2
         color: Config.colours.active
+        opacity: root.style === "icons" && WorkspaceStyle.largest[root.activeId] ? 0 : 1
+
+        Behavior on opacity {
+            Anim {}
+        }
 
         Behavior on x {
+            Anim {}
+        }
+
+        Behavior on width {
             Anim {}
         }
     }
@@ -97,9 +110,17 @@ Item {
             required property int modelData
             readonly property int wsId: root.base + modelData
             readonly property bool active: wsId === root.activeId
+            readonly property bool occupied: !!root.occupied[wsId]
+            readonly property string appClass: WorkspaceStyle.largest[wsId] ?? ""
+            readonly property var entry: appClass ? DesktopEntries.heuristicLookup(appClass) : null
+            readonly property bool showIcon: root.style === "icons" && appClass !== ""
 
-            width: Config.workspaces.slot
+            width: root.dots ? Config.workspaces.slot : Config.workspaces.wideSlot
             height: Config.workspaces.size
+
+            Behavior on width {
+                Anim {}
+            }
 
             Binding {
                 when: ws.active
@@ -114,9 +135,45 @@ Item {
                 width: Config.workspaces.dot
                 height: width
                 radius: width / 2
-                color: root.occupied[ws.wsId] ? Config.colours.subtext : Config.colours.muted
+                color: ws.occupied ? Config.colours.subtext : Config.colours.muted
                 // The indicator covers the active one.
-                opacity: ws.active ? 0 : 1
+                opacity: root.style === "numbers" || ws.showIcon || (ws.active && root.style !== "numbers") ? 0 : 1
+
+                Behavior on opacity {
+                    Anim {}
+                }
+
+                Behavior on color {
+                    ColorAnimation {
+                        duration: 200
+                    }
+                }
+            }
+
+            IconImage {
+                anchors.centerIn: parent
+                implicitSize: Config.workspaces.icon
+                source: ws.showIcon ? Quickshell.iconPath(ws.entry?.icon ?? ws.appClass, "application-x-executable") : ""
+                opacity: ws.showIcon ? (ws.active ? 1 : 0.45) : 0
+                scale: ws.showIcon ? (ws.active ? 1.15 : 0.8) : 0.5
+
+                Behavior on opacity {
+                    Anim {}
+                }
+
+                Behavior on scale {
+                    Anim {}
+                }
+            }
+
+            Text {
+                anchors.centerIn: parent
+                text: ws.modelData
+                font.family: Config.font.family
+                font.pointSize: Config.font.small
+                font.bold: ws.active
+                color: ws.active ? Config.colours.activeText : ws.occupied ? Config.colours.text : Config.colours.subtext
+                opacity: root.style === "numbers" ? 1 : 0
 
                 Behavior on opacity {
                     Anim {}
