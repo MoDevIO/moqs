@@ -76,6 +76,11 @@ Item {
     }
     onRestChanged: if (mode === "nix")
         nixTimer.restart()
+    // The Home Assistant camera whose picture shows (Enter on it in ">"), or "". Typing,
+    // Escape or Enter closes it.
+    property string camera
+    property int frame
+    onQueryChanged: camera = ""
     property string nixQuery
 
     Timer {
@@ -261,6 +266,12 @@ Item {
             Launcher.runNix(item.pkg[0], terminal);
             break;
         case "hass":
+            if (item.cmd.action === "camera") {
+                // Shown here, the launcher stays open.
+                camera = item.cmd.entity;
+                HomeAssistant.refreshOne(camera);
+                return;
+            }
             if (item.cmd.action === "copy")
                 copy(HomeAssistant.value(item.cmd.entity));
             else
@@ -478,13 +489,13 @@ Item {
                     clip: true
 
                     onTextChanged: list.currentIndex = 0
-                    Keys.onReturnPressed: event => root.activate(root.shown[list.currentIndex], event.modifiers & Qt.ShiftModifier)
-                    Keys.onEnterPressed: event => root.activate(root.shown[list.currentIndex], event.modifiers & Qt.ShiftModifier)
+                    Keys.onReturnPressed: event => root.camera ? root.camera = "" : root.activate(root.shown[list.currentIndex], event.modifiers & Qt.ShiftModifier)
+                    Keys.onEnterPressed: event => root.camera ? root.camera = "" : root.activate(root.shown[list.currentIndex], event.modifiers & Qt.ShiftModifier)
                     Keys.onDownPressed: list.incrementCurrentIndex()
                     Keys.onUpPressed: list.decrementCurrentIndex()
                     Keys.onTabPressed: list.incrementCurrentIndex()
                     Keys.onBacktabPressed: list.decrementCurrentIndex()
-                    Keys.onEscapePressed: root.closed()
+                    Keys.onEscapePressed: root.camera ? root.camera = "" : root.closed()
 
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
@@ -512,6 +523,69 @@ Item {
                 }
             }
 
+            // A Home Assistant camera's picture, a new frame every second.
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.leftMargin: 6
+                Layout.rightMargin: 6
+                visible: root.camera !== ""
+                spacing: 6
+
+                Timer {
+                    running: root.camera !== "" && root.open
+                    repeat: true
+                    interval: 1000
+                    onTriggered: {
+                        root.frame++;
+                        // A new token now and then; Home Assistant changes it every few minutes.
+                        if (root.frame % 60 === 0)
+                            HomeAssistant.refreshOne(root.camera);
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: width * 9 / 16
+                    radius: 14
+                    color: Config.colours.button
+                    clip: true
+
+                    // Two pictures taking turns, so the old frame stays until the new one is in:
+                    // one loads the even frames, the other the odd ones.
+                    Shot {
+                        id: shotA
+
+                        mine: root.frame - root.frame % 2
+                        other: shotB
+                    }
+
+                    Shot {
+                        id: shotB
+
+                        mine: Math.max(0, root.frame - (root.frame + 1) % 2)
+                        other: shotA
+                    }
+
+                    Text {
+                        anchors.centerIn: parent
+                        visible: !HomeAssistant.cameraUrl(root.camera, 0)
+                        text: HomeAssistant.state(root.camera)?.state === "unavailable" ? "The camera is unavailable" : "Loading…"
+                        color: Config.colours.subtext
+                        font.family: Config.font.family
+                        font.pointSize: Config.font.small
+                    }
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: `${HomeAssistant.name({ entity: root.camera, name: "" })} · Esc or Enter closes`
+                    elide: Text.ElideRight
+                    color: Config.colours.subtext
+                    font.family: Config.font.family
+                    font.pointSize: Config.font.small
+                }
+            }
+
             ListView {
                 id: list
 
@@ -521,7 +595,7 @@ Item {
 
                 Layout.fillWidth: true
                 Layout.preferredHeight: Math.min(count, Config.launcher.shown) * root.rowHeight + Math.max(0, Math.min(count, Config.launcher.shown) - 1) * spacing
-                visible: count > 0
+                visible: count > 0 && !root.camera
                 clip: true
                 spacing: 2
                 boundsBehavior: Flickable.StopAtBounds
@@ -656,6 +730,19 @@ Item {
                 implicitHeight: 0
             }
         }
+    }
+
+    // One of the camera preview's two pictures.
+    component Shot: Image {
+        property int mine
+        property Image other
+
+        anchors.fill: parent
+        fillMode: Image.PreserveAspectFit
+        asynchronous: true
+        cache: false
+        source: root.camera ? HomeAssistant.cameraUrl(root.camera, mine) : ""
+        visible: status === Image.Ready && (mine === root.frame || other.status !== Image.Ready)
     }
 
     component Anim: NumberAnimation {

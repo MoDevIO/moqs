@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import Quickshell.Wayland
 import qs.config
 import qs.modules.auth
@@ -362,6 +363,49 @@ Scope {
                 anchors.top: parent.top
                 anchors.topMargin: root.top
                 anchors.horizontalCenter: parent.horizontalCenter
+            }
+
+            // A popover closing: it's its own window, so the pointer may have left the panel
+            // while over it; then the panel closes too. Where the pointer is comes from
+            // Hyprland: this window learns it only once the pointer moves again (a click
+            // outside the popover only closes the popover).
+            Connections {
+                target: cc
+
+                function onPopupOpenChanged(): void {
+                    if (!cc.popupOpen)
+                        ccRecheck.restart();
+                }
+            }
+
+            Timer {
+                id: ccRecheck
+
+                interval: 150
+                onTriggered: if (cc.open && !cc.popupOpen && !cc.holdOpen)
+                    cursorPos.running = true
+            }
+
+            Process {
+                id: cursorPos
+
+                command: ["hyprctl", "cursorpos", "-j"]
+                stdout: StdioCollector {
+                    onStreamFinished: {
+                        if (!cc.open || cc.popupOpen || cc.holdOpen)
+                            return;
+                        let c = null;
+                        try {
+                            c = JSON.parse(text);
+                        } catch (e) {
+                            return;
+                        }
+                        // Hyprland's layout to this screen's coordinates.
+                        const p = Qt.point(c.x - root.modelData.x, c.y - root.modelData.y);
+                        if (!hover.near(p, (win.width - cc.targetWidth) / 2, (win.width + cc.targetWidth) / 2, root.top + cc.targetHeight))
+                            cc.open = false;
+                    }
+                }
             }
 
             SendPanel {

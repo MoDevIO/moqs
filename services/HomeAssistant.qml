@@ -28,6 +28,8 @@ import qs.config
 //
 // The launcher's ">" reaches every entity: "> desk lamp" toggles it, "> desk lamp off",
 // "> desk lamp 40" dims it, "> heater 21" sets a thermostat, "> lights off" all lights.
+// Results come by kind (see kinds), best match first within one; Enter on a camera shows
+// its picture (cameraUrl()).
 Singleton {
     id: root
 
@@ -73,6 +75,28 @@ Singleton {
         });
     }
 
+    // The order of the launcher's results by domain; others come before cameras.
+    readonly property var kinds: [["light"], ["vacuum"], ["switch", "input_boolean"], ["sensor", "binary_sensor"], ["media_player"], ["button", "input_button", "number", "input_number", "select", "input_select", "text", "input_text", "date", "time", "datetime", "input_datetime"], ["*"], ["camera"]]
+
+    function kindRank(id: string): int {
+        const domain = id.split(".")[0];
+        const i = kinds.findIndex(k => k.includes(domain));
+        return i >= 0 ? i : kinds.findIndex(k => k.includes("*"));
+    }
+
+    // A camera's current picture: Home Assistant's camera proxy, with the short-lived token
+    // from its state (refreshed by refreshOne()), so no header is needed; `n` makes a new
+    // URL each time, for a new frame.
+    function cameraUrl(id: string, n: int): string {
+        const pic = state(id)?.attributes?.entity_picture ?? "";
+        return pic ? `${url}${pic}${pic.includes("?") ? "&" : "?"}n=${n}` : "";
+    }
+
+    function refreshOne(id: string): void {
+        if (configured)
+            request("GET", `/api/states/${id}`, null, s => update([s]));
+    }
+
     // Words for all entities of a domain, as in "lights off".
     readonly property var groups: ({ lights: "light", switches: "switch", fans: "fan", covers: "cover", blinds: "cover" })
 
@@ -106,11 +130,12 @@ Singleton {
             const act = actionFor(id, word, num);
             if (!act)
                 continue;
-            // Things that do something before sensors, the dashboard's own first.
-            sc += (act.action !== "copy" ? 5 : 0) + (entities.includes(id) ? 3 : 0) - (state(id)?.state === "unavailable" ? 20 : 0);
-            out.push(Object.assign({ entity: id, all: false, name: label, glyph: icon({ entity: id, icon: "" }), score: sc }, act));
+            // The dashboard's own first, unavailable ones last.
+            sc += (entities.includes(id) ? 3 : 0) - (state(id)?.state === "unavailable" ? 20 : 0);
+            out.push(Object.assign({ entity: id, all: false, name: label, glyph: icon({ entity: id, icon: "" }), score: sc, rank: kindRank(id) }, act));
         }
-        const shown = out.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name)).slice(0, 30);
+        // "All lights" first, then by kind, then by how well the name matches.
+        const shown = out.sort((a, b) => (a.all ? -1 : a.rank) - (b.all ? -1 : b.rank) || b.score - a.score || a.name.localeCompare(b.name)).slice(0, 30);
         // Entities that share a name show their ID too.
         const names = {};
         for (const c of shown)
@@ -139,6 +164,8 @@ Singleton {
             }[domain];
             return set ? Object.assign({ action: set[0], value: set[1] }, say(set[2])) : null;
         }
+        if (domain === "camera")
+            return word ? null : Object.assign({ action: "camera", value: 0 }, say("Enter shows it"));
         const switchable = ["light", "switch", "fan", "input_boolean", "automation", "cover", "media_player", "climate", "water_heater", "humidifier", "siren", "remote", "vacuum"].includes(domain);
         if (word === "on" || word === "off")
             return switchable ? Object.assign({ action: word, value: 0 }, say(`Enter turns ${word}`)) : null;
@@ -248,7 +275,7 @@ Singleton {
         const domain = item.entity.split(".")[0];
         const on = s?.state === "on";
         const byClass = { energy: "lightning-bolt", power: "flash", temperature: "thermometer", humidity: "water-percent", battery: "battery" }[a.device_class];
-        const byDomain = { light: on ? "lightbulb" : "lightbulb-outline", switch: on ? "toggle-switch" : "toggle-switch-off-outline", fan: "fan", scene: "palette", script: "script-text-outline", button: "gesture-tap-button", input_boolean: on ? "toggle-switch" : "toggle-switch-off-outline", sensor: "eye", binary_sensor: on ? "checkbox-marked-circle" : "checkbox-blank-circle-outline" }[domain];
+        const byDomain = { light: on ? "lightbulb" : "lightbulb-outline", switch: on ? "toggle-switch" : "toggle-switch-off-outline", fan: "fan", scene: "palette", script: "script-text-outline", button: "gesture-tap-button", input_boolean: on ? "toggle-switch" : "toggle-switch-off-outline", sensor: "eye", binary_sensor: on ? "checkbox-marked-circle" : "checkbox-blank-circle-outline", vacuum: "robot-vacuum", camera: "cctv", media_player: "speaker" }[domain];
         return glyph(byClass ?? byDomain ?? "home-assistant");
     }
 
