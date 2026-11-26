@@ -87,7 +87,7 @@ ColumnLayout {
 
                 Text {
                     Layout.alignment: Qt.AlignHCenter
-                    text: dayColumn.index === 0 ? "Today" : Qt.formatDate(new Date(Date.now() + dayColumn.index * 86400000), "ddd")
+                    text: dayColumn.index === 0 ? "Today" : Qt.formatDate(new Date(Vocab.dayAfter(Vocab.now, dayColumn.index)), "ddd")
                     color: Config.colours.subtext
                     font.family: Config.font.family
                     font.pointSize: Config.font.small
@@ -147,6 +147,50 @@ ColumnLayout {
                 }
             }
         }
+    }
+
+    Label {
+        visible: root.stats.hard.length > 0
+        text: `Hard words · ${root.stats.hard.length}, missed most first`
+        Layout.fillWidth: true
+        wrapMode: Text.Wrap
+    }
+
+    Repeater {
+        model: root.stats.hard.slice(0, 8)
+
+        RowLayout {
+            id: hardRow
+
+            required property var modelData
+
+            Layout.fillWidth: true
+            spacing: 8
+
+            Text {
+                Layout.fillWidth: true
+                text: `${hardRow.modelData.prompt} = ${hardRow.modelData.answer}`
+                elide: Text.ElideRight
+                color: Config.colours.text
+                font.family: Config.font.family
+                font.pointSize: Config.font.small
+            }
+
+            Text {
+                text: `${hardRow.modelData.misses}×`
+                color: Config.colours.red
+                font.family: Config.font.family
+                font.pointSize: Config.font.small
+            }
+        }
+    }
+
+    Text {
+        visible: root.stats.hard.length > 8
+        text: `and ${root.stats.hard.length - 8} more (qs ipc call vocab hardWords)`
+        color: Config.colours.muted
+        font.family: Config.font.family
+        font.pointSize: Config.font.small
     }
 
     // A big number with a caption under it.

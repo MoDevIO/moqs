@@ -31,6 +31,7 @@ Singleton {
 
     readonly property VocabSession session: VocabSession {
         gate: true
+        where: "game"
         onPassed: root.release()
     }
 

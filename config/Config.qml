@@ -165,6 +165,9 @@ Singleton {
         // word step waits before offering an emergency unlock.
         readonly property int newPerDay: 20
         readonly property int relearn: 10
+        // A word missed n times today has to be right min(n, steps + 1) times in a row before
+        // it waits for tomorrow, these many minutes apart.
+        readonly property var steps: [10, 30]
         readonly property int emergency: 60
         // FSRS: the chance of still remembering a word when it's asked again, and the most
         // days between two asks.
@@ -173,6 +176,12 @@ Singleton {
         // Seconds to the first key above which a right answer counts as Hard, until there
         // are ten right answers to compare with.
         readonly property real slow: 6
+        // Misses after which a word is flagged as hard (the first try of a new word doesn't
+        // count); right answers on this many reviews in a row clear the flag.
+        readonly property int leech: 4
+        readonly property int leechCleared: 3
+        // The hour a new day starts, for new words a day and when words come due.
+        readonly property int dayStart: 4
         // Hours between notifications about words due for review; 0 turns them off.
         readonly property real notifyEvery: 3
     }

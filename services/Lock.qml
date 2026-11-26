@@ -31,6 +31,7 @@ Singleton {
     // The word asked after the password, the same on every screen.
     readonly property VocabSession gate: VocabSession {
         gate: true
+        where: "lock"
         onPassed: root.finishVocab()
     }
     // When the word step began, and whether its emergency button works yet.

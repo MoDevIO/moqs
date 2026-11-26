@@ -81,6 +81,21 @@ let
         )
       } $out/hass.json
     ''}
+    ${lib.optionalString cfg.vocab.aids.enable ''
+      cp ${
+        pkgs.writeText "aids.json" (
+          builtins.toJSON (
+            {
+              inherit (cfg.vocab.aids) url model language;
+            }
+            // lib.optionalAttrs (cfg.vocab.aids.apiKeyCommand != null) { inherit (cfg.vocab.aids) apiKeyCommand; }
+            // lib.optionalAttrs (cfg.vocab.aids.apiKeyFile != null) {
+              apiKeyCommand = "cat ${lib.escapeShellArg cfg.vocab.aids.apiKeyFile}";
+            }
+          )
+        )
+      } $out/aids.json
+    ''}
     ${lib.optionalString cfg.weather.enable ''
       cp ${
         pkgs.writeText "weather.json" (
@@ -149,7 +164,11 @@ in
             (oneOf "webuntis" "url" cfg.webuntis.url cfg.webuntis.urlFile)
             (oneOf "webuntis" "school" cfg.webuntis.school cfg.webuntis.schoolFile)
           ]
-          ++ lib.optional cfg.weather.enable (oneOf "weather" "location" cfg.weather.location cfg.weather.locationFile);
+          ++ lib.optional cfg.weather.enable (oneOf "weather" "location" cfg.weather.location cfg.weather.locationFile)
+          ++ lib.optional cfg.vocab.aids.enable {
+            assertion = cfg.vocab.aids.apiKeyFile == null || cfg.vocab.aids.apiKeyCommand == null;
+            message = "services.moqs.vocab.aids: set at most one of apiKeyFile or apiKeyCommand.";
+          };
 
         programs.quickshell = {
           enable = true;

@@ -131,6 +131,43 @@ in
     description = "The name other devices see for AirDrop. `null` uses the host name.";
   };
 
+  vocab.aids = {
+    enable = mkEnableOption "memory aids for hard vocabulary words, suggested by a language model behind an OpenAI-compatible API";
+
+    url = mkOption {
+      type = types.str;
+      example = "http://localhost:11434/v1";
+      description = "Base URL of the API, the part before `/chat/completions`.";
+    };
+
+    model = mkOption {
+      type = types.str;
+      example = "llama3.1:8b";
+      description = "The model to ask.";
+    };
+
+    apiKeyFile = mkOption {
+      type = types.nullOr types.str;
+      default = null;
+      example = "/run/secrets/llm";
+      description = "File containing the API key, if the server needs one. Read at runtime, so it stays out of the Nix store.";
+    };
+
+    apiKeyCommand = mkOption {
+      type = types.nullOr types.str;
+      default = null;
+      example = "pass show llm";
+      description = "Command printing the API key on its first line. Alternative to `apiKeyFile`.";
+    };
+
+    language = mkOption {
+      type = types.str;
+      default = "";
+      example = "German";
+      description = "Language the memory aids are written in. Empty: the translations' language.";
+    };
+  };
+
   navidrome = login {
     name = "Navidrome";
     url = "";

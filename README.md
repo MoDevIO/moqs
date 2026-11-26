@@ -18,17 +18,20 @@ A minimal [Quickshell](https://quickshell.org) shell for Hyprland. Black frame a
 - CPU and RAM bars plus a battery icon on the right.
 
 **Vocabulary**
-- `;` in the launcher (or `qs ipc call vocab open`) asks words by spaced repetition: type the translation and press Enter, or press Enter alone if you don't know it. A wrong answer (or none) shows the right one, which you type out before the next word. The word then comes back in the same session: first after the other words left to do, and sooner each time it's wrong again; once nothing else is left, these are asked until each is right.
+- `;` in the launcher (or `qs ipc call vocab open`) asks words by spaced repetition: type the translation and press Enter, or press Enter alone if you don't know it. A wrong answer (or none) shows the right one, which you type out before the next word. If your answer was right after all (a synonym the list doesn't have, say), **I got it right** under it (or Ctrl+Enter) takes the miss back and counts it as right; only in the pane, not on the lock screen or before a game. The word then comes back in the same session: first after the other words left to do, and sooner each time it's wrong again; once nothing else is left, these are asked until each is right. A word missed today isn't learnt by one right answer just after seeing it: missed twice, it has to be right twice in a row, 10 minutes apart; missed three times or more, three times, 10 and then 30 minutes apart ("Not learnt yet: right 2 more times · next in 10 min"). Only then does it wait until tomorrow, never longer, and a miss on the way starts the count again (`steps` in `config/Config.qml`). Then comes a **final round**: every word you missed in the session once more, in a new order, until each is right; it's practice and doesn't change when they come back. A wrong answer that is another word's translation is pointed out, e.g. "Mixed up: that's nūptiae = die Heirat".
 - When a word comes back is worked out by FSRS, the scheduler Anki uses: each word has a stability and a difficulty that every answer updates, and it's asked again when the chance of still remembering it falls to 90 % (`retention` in `config/Config.qml`). Answered right every time, a word comes back after about 3, 11, 34 and 99 days. A right answer counts as Good, or as Hard when recalling it took long: the time until your first key is slower than three quarters of your last right answers (6 seconds until there are ten). Typos and accents don't change the grade. After a right answer the whole answer shows, with the meanings you didn't type.
+- A day starts at 4 am, as in Anki (`dayStart` in `config/Config.qml`): practice after midnight still counts for the day before, and a word due "tomorrow" is there from 4 am, not 24 hours after you answered it.
 - Due words come first, then up to 20 new ones a day (once you're caught up, holding **Learn more** for three seconds gives another 20), in the list's order or, with **Random** at the bottom of the pane, at random. A word is asked as written (word → translation); **Both ways** asks it the other way round too.
 - Words are in `$XDG_STATE_HOME/moqs/vocab.txt`, one per line as `word = translation` (tab-separated lines, as Anki exports them, work too). `,`, `/` or `;` separates answers that each count (not inside brackets), a part in brackets may be left out, and German nouns count without their article: `currere = (schnell) laufen, rennen`, `silentium = die Ruhe, die Stille`. Umlauts count however they're typed (`schön`, `schoen`, `schon`), and missing accents or one typo in a longer word count too, with the right spelling shown. In the pane, `+word = translation` adds one and Ctrl+Delete removes the one shown. The schedule is kept in `vocab.json` beside it.
 - A line may end in a note after ` # `, e.g. grammar: `dux = der Führer # (Gen. Sg.:) ducis · (m)`. It shows under the answer once you've answered. A comment line such as `# Lektion 3` heads the words below it.
+- **Hard words:** a word you've missed four times (the first try of a new word doesn't count) is marked in red while it's asked, with how often you've missed it. Once it's answered, the pane offers to keep a memory aid with it: type `#` and the aid (a picture, a similar word), and it's added to the word's line in `vocab.txt` as ` # aid: …` (after its note, which stays), shown with the answer from then on (`#` alone removes it). With `services.moqs.vocab.aids` set up, a language model behind an OpenAI-compatible API (Ollama, llama.cpp, vLLM, or a hosted one) suggests one by itself for hard words, and on a click for any other: a German or English word derived from it, or a picture linking its sound to its meaning, and after a mix-up how to tell the two apart. **Tab** keeps it, **Another** asks again, Enter goes on. Only the word, its translation, its note and the word it was mixed up with are sent. Stats lists the hard words, most missed first (all of them with `qs ipc call vocab hardWords`). A word stops counting as hard after three reviews right in a row. Both numbers are `leech` and `leechCleared` in `config/Config.qml`.
+- Every answer is appended to `$XDG_STATE_HOME/moqs/vocab-log.jsonl`, one JSON object a line: the word, what you typed, right or not, the grade, how long until the first key, mix-ups, and the schedule before and after. "I got it right" adds a line pointing at the answer it overrules. It's there to tune the scheduler to your memory later.
 - **Stats** at the bottom of the pane shows, in place of the card: words seen and learnt (remembered three weeks or more), the streak of days with answers, how many were right in the last 7 days, the words due on each of the next 7 days, and each lesson's progress.
 - While words are due, their number shows to the right of the clock; a click opens the pane.
 - **Games** at the bottom of the pane (on by default; `qs ipc call vocab toggleGames`): a Steam game's window (its process has Steam's `SteamGameId`, or its class is `steam_app_…`; Steam itself never) moves to a hidden workspace as it opens, and a full-screen card asks a word first, as the lock does: a wrong answer shows the right one to type out, then another word, until one is right, with an emergency button after a minute. Then the game comes back where it opened, and its other windows pass until it's closed.
 - While words are due for review, a notification says how many (clicking it opens the pane), at most every three hours (`notifyEvery` in `config/Config.qml`, 0 for none) and not while you're practising.
 - **Lock asks** at the bottom of the pane: after the right password, the lock screen asks for a word too. A wrong answer shows the right one to type out, then another word, until you get one right. After a minute an emergency button unlocks without it. With no words it isn't asked. When none is due, it asks one of the words you've seen that is due soonest; answering it early barely changes when it comes back, so unlocking often doesn't push words away.
-- Over IPC: `qs ipc call vocab` with `toggleLock`, `toggleBothWays`, `toggleRandom` (also `setLock`, `setBothWays`, `setRandom` with true or false, and `lockEnabled`, `bothWays`, `random`), `add "word" "translation"`, `stats`.
+- Over IPC: `qs ipc call vocab` with `toggleLock`, `toggleBothWays`, `toggleRandom` (also `setLock`, `setBothWays`, `setRandom` with true or false, and `lockEnabled`, `bothWays`, `random`), `add "word" "translation"`, `stats`, `hardWords`.
 
 **Timers**
 - In the launcher, `=` followed by a time starts a timer: `=10m`, `=1h30 tea`, `=90s pasta`. The soonest counts down left of the clock (with how many more run); clicking it asks "Cancel?", clicking again cancels it. When one ends, a sound plays and a notification stays until dismissed. Timers outlast a restart. Also `qs ipc call timers start "25m focus"`, `list`, `cancel`.
@@ -141,6 +144,14 @@ The flake has a Home Manager module and a NixOS wrapper around it, both configur
       location = "Frankfurt, DE"; # or a GeoNames ID like "2925533", or "50.11,8.68"
     };
 
+    vocab.aids = {
+      enable = true;
+      url = "http://localhost:11434/v1"; # any OpenAI-compatible API, before /chat/completions
+      model = "llama3.1:8b";
+      apiKeyCommand = "pass show llm"; # or apiKeyFile; leave both out if the server needs no key
+      language = "German"; # what the memory aids are written in
+    };
+
     hass = {
       enable = true;
       url = "http://homeassistant.local:8123";
@@ -176,7 +187,7 @@ This needs the Home Manager NixOS module as well. The settings are passed on to 
   services.moqs = {
     enable = true;
     user = "alice";
-    # navidrome = { … }; matrix = { … }; webuntis = { … }; weather = { … }; hass = { … }; as above
+    # navidrome = { … }; matrix = { … }; webuntis = { … }; weather = { … }; hass = { … }; vocab.aids = { … }; as above
   };
 }
 ```
@@ -186,7 +197,7 @@ Don't put `homeManagerModules.default` in a NixOS module list. It stops with an 
 ### What the module does
 
 - Turns on `programs.quickshell`, started from `hyprland-session.target`. Change the target with `services.moqs.systemdTarget`.
-- Installs the shell to `~/.config/quickshell`, together with `settings.json`, `airdrop.json`, `navidrome.json`, `matrix.json`, `webuntis.json`, `weather.json` and `hass.json` generated from your settings.
+- Installs the shell to `~/.config/quickshell`, together with `settings.json`, `airdrop.json`, `navidrome.json`, `matrix.json`, `webuntis.json`, `weather.json`, `hass.json` and `aids.json` generated from your settings.
 - Installs the programs the shell runs:
   - always: `brightnessctl`, `cliphist`, `curl`, `libnotify` and `wl-clipboard`
   - with Navidrome enabled: `mpv`, plus [mpv-mpris](https://github.com/hoyon/mpv-mpris) loaded into the shell's own mpv
@@ -234,6 +245,11 @@ Other settings you'd rather keep out of the store too can come from files read a
 | `hass.url` | (none) | Home Assistant URL |
 | `hass.tokenFile` / `tokenCommand` | `null` | Long-lived access token (profile page → Security) |
 | `hass.sections` | `[]` | What the card shows; see [Home Assistant card](#home-assistant-card) |
+| `vocab.aids.enable` | `false` | Memory aids for hard vocabulary words from a language model |
+| `vocab.aids.url` | (none) | OpenAI-compatible API, e.g. `http://localhost:11434/v1` |
+| `vocab.aids.model` | (none) | Model to ask |
+| `vocab.aids.apiKeyFile` / `apiKeyCommand` | `null` | API key, if the server needs one |
+| `vocab.aids.language` | `""` | Language of the aids; empty: the translations' |
 
 ### Login screen
 
@@ -322,6 +338,9 @@ Without the Nix module, put the panel settings next to `shell.qml`. These files 
 
 // weather.json: a place name, a GeoNames ID ("2925533") or "latitude,longitude"
 { "location": "Frankfurt, DE" }
+
+// aids.json: memory aids for vocabulary; "apiKey" or "apiKeyCommand" if the server needs one
+{ "url": "http://localhost:11434/v1", "model": "llama3.1:8b", "language": "German" }
 
 // hass.json: the card's layout is described below
 {

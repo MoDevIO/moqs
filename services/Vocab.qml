@@ -22,6 +22,21 @@ import qs.config
 // key is slower than three quarters of the last right answers (Config.vocab.slow seconds
 // until there are a few).
 //
+// A word missed today isn't learnt by one right answer, often just after its answer was
+// shown: missed n times, it has to be right min(n, steps + 1) times in a row, the
+// Config.vocab.steps minutes apart, and then comes back tomorrow, never later. A miss on the
+// way starts the count again.
+//
+// A day starts at Config.vocab.dayStart (4 am), as in Anki: answers after midnight count for
+// the day before, and words come due at the start of a day, not 24 hours after the answer.
+//
+// A word missed Config.vocab.leech times (not counting the first try of a new word) is a hard
+// word: it's marked while asked, the pane offers to keep a memory aid with it, and the stats
+// list it, until it's right on Config.vocab.leechCleared reviews in a row. A memory aid sits
+// in the word's line after the note as " # aid: …" (see MemoryAid for suggested ones).
+//
+// Every answer is appended to vocab-log.jsonl (see log()), for tuning the scheduler later.
+//
 // While words are due for review, a notification says so (clicking it opens the pane), at
 // most every Config.vocab.notifyEvery hours and not while practising.
 //
@@ -34,17 +49,22 @@ import qs.config
 //                                           ask a word first, see GameGate)
 //   qs ipc call vocab add "word" "translation"
 //   qs ipc call vocab stats
+//   qs ipc call vocab hardWords
 Singleton {
     id: root
 
     readonly property string stateDir: `${Quickshell.env("XDG_STATE_HOME") || `${Quickshell.env("HOME")}/.local/state`}/moqs`
     readonly property string wordsPath: `${stateDir}/vocab.txt`
+    readonly property string logPath: `${stateDir}/vocab-log.jsonl`
     readonly property real day: 86400000
 
-    // [{ front, back, hint, section, line }], line being its index in vocab.txt and section
-    // the comment heading it.
+    // [{ front, back, hint, aid, section, line }], line being its index in vocab.txt, section
+    // the comment heading it, hint its note (e.g. grammar) and aid its memory aid.
     property var cards: []
-    // Card key -> { due, last (ms), s (stability, days), d (difficulty, 1..10), reps, lapses }.
+    // Card key -> { due, last (ms), s (stability, days), d (difficulty, 1..10), reps, lapses,
+    // misses (answers missed, the first of a new word aside), streak (reviews right in a row),
+    // learning (in a step minutes after a mistake), missDay and missesToday (misses on the day
+    // missDay), stepRight (right answers in a row since the last miss that day) }.
     property var sched: ({})
     // New words first asked today, and the day it counts for.
     property string newDay
@@ -113,9 +133,7 @@ Singleton {
     // seen, learnt }] }
     readonly property var stats: {
         version;
-        const out = { total: items.length, seen: 0, learnt: 0, streak: 0, recall: -1, forecast: [0, 0, 0, 0, 0, 0, 0], sections: [] };
-        const midnight = new Date(now);
-        midnight.setHours(24, 0, 0, 0);
+        const out = { total: items.length, seen: 0, learnt: 0, streak: 0, recall: -1, forecast: [0, 0, 0, 0, 0, 0, 0], sections: [], hard: [] };
         const bySection = {};
         for (const i of items) {
             const e = sched[i.key];
@@ -134,11 +152,13 @@ Singleton {
                 out.learnt++;
                 sec.learnt++;
             }
-            const d = Math.max(0, Math.floor((e.due - midnight.getTime()) / day) + 1);
+            if (isHard(e))
+                out.hard.push({ prompt: i.prompt, answer: i.answer, misses: missesOf(e) });
+            const d = Math.max(0, daysBetween(now, e.due));
             if (d < 7)
                 out.forecast[d]++;
         }
-        const date = n => Qt.formatDate(new Date(now - n * day), "yyyy-MM-dd");
+        const date = n => dayKey(dayStart(now) - n * day + day / 2);
         let answers = 0, right = 0;
         for (let n = 0; n < 7; n++) {
             answers += history[date(n)]?.n ?? 0;
@@ -146,14 +166,69 @@ Singleton {
         }
         if (answers)
             out.recall = right / answers;
+        out.hard.sort((a, b) => b.misses - a.misses);
         // Today counts once something's answered; until then the streak runs to yesterday.
         for (let n = history[date(0)]?.n ? 0 : 1; history[date(n)]?.n; n++)
             out.streak++;
         return out;
     }
 
+    // Misses of a schedule entry. Entries from before they were counted have every miss in
+    // lapses, the first try of a new word maybe among them.
+    function missesOf(e: var): int {
+        return e ? e.misses ?? Math.max(0, (e.lapses ?? 0) - 1) : 0;
+    }
+
+    function isHard(e: var): bool {
+        return missesOf(e) >= Config.vocab.leech && (e.streak ?? 0) < Config.vocab.leechCleared;
+    }
+
+    // An item's misses (see items).
+    function misses(item: var): int {
+        version;
+        return item ? missesOf(sched[item.key]) : 0;
+    }
+
+    // Whether an item (see items) is a hard word.
+    function hard(item: var): bool {
+        version;
+        return !!item && isHard(sched[item.key]);
+    }
+
+    // ---- Days, starting at Config.vocab.dayStart
+
+    // When the day of `ms` started (ms).
+    function dayStart(ms: real): real {
+        const d = new Date(ms - Config.vocab.dayStart * 3600000);
+        d.setHours(Config.vocab.dayStart, 0, 0, 0);
+        return d.getTime();
+    }
+
+    // The day of `ms` as "yyyy-MM-dd".
+    function dayKey(ms: real): string {
+        return Qt.formatDate(new Date(ms - Config.vocab.dayStart * 3600000), "yyyy-MM-dd");
+    }
+
+    // Days from the day of `a` to that of `b`.
+    function daysBetween(a: real, b: real): int {
+        return Math.round((dayStart(b) - dayStart(a)) / day);
+    }
+
+    // The start of the day `n` days after that of `ms`.
+    function dayAfter(ms: real, n: int): real {
+        const d = new Date(dayStart(ms));
+        d.setDate(d.getDate() + n);
+        return d.getTime();
+    }
+
     function today(): string {
-        return Qt.formatDate(new Date(), "yyyy-MM-dd");
+        return dayKey(Date.now());
+    }
+
+    // An entry in a step minutes after a mistake, rather than waiting days for review.
+    // Entries from before this was kept say it by their short wait.
+    function learning(e: var): bool {
+        return e.learning ?? e.due - e.last < day / 2;
     }
 
     function any(list: var): var {
@@ -276,6 +351,28 @@ Singleton {
         return { ok: false, note: "" };
     }
 
+    // Another word whose answer (this way round) is what was typed for `item`, or null: a
+    // mix-up, worth pointing out.
+    function mixup(item: var, text: string): var {
+        const t = clean(text.replace(/[()]/g, ""));
+        if (!t)
+            return null;
+        const typed = spellings(t);
+        const same = x => spellings(x).some(v => typed.includes(v)) || bare(x) === bare(t);
+        for (const c of cards) {
+            if (c === item.card || (c.front === item.card.front && c.back === item.card.back))
+                continue;
+            if (accepted(item.dir === ">" ? c.back : c.front).some(same))
+                return c;
+        }
+        return null;
+    }
+
+    // Appends an answer to vocab-log.jsonl, one JSON object a line.
+    function log(record: var): void {
+        Quickshell.execDetached(["sh", "-c", 'printf "%s\\n" "$1" >> "$2"', "sh", JSON.stringify(record), logPath]);
+    }
+
     // The grade of a right answer from how long recalling it took (seconds until the first
     // key): Hard (2) if slower than three quarters of the last ones, else Good (3). Remembers
     // the time, capped so a walk away doesn't skew the rest, unless `repeat` (a word asked
@@ -342,6 +439,24 @@ Singleton {
         return { due: old.due, last: ivl > 0 ? old.due - ivl * day : old.due - Config.vocab.relearn * 60000, s: ivl > 0 ? ivl : w[0], d: old.lapses ? 6 : 5, reps: old.reps ?? 0, lapses: old.lapses ?? 0 };
     }
 
+    // What grading an item changes, to take a grade back (see restore()).
+    function snapshot(item: var): var {
+        const e = sched[item.key];
+        return { key: item.key, entry: e ? Object.assign({}, e) : null, history, newDay, newToday };
+    }
+
+    function restore(snap: var): void {
+        if (snap.entry)
+            sched[snap.key] = snap.entry;
+        else
+            delete sched[snap.key];
+        history = snap.history;
+        newDay = snap.newDay;
+        newToday = snap.newToday;
+        version++;
+        save.restart();
+    }
+
     // Schedules a word after an answer graded 1 (Again), 2 (Hard) or 3 (Good). Returns the
     // days until it's asked again, 0 for minutes.
     function grade(item: var, g: int): int {
@@ -349,8 +464,8 @@ Singleton {
         lastAnswer = now;
         const old = upgrade(sched[item.key]);
         let s, d;
-        // A review (not a step minutes after a mistake) that isn't due yet.
-        const review = old && old.due - old.last >= day / 2;
+        // A review, not a step minutes after a mistake.
+        const review = old && !learning(old);
         if (!old) {
             if (newDay !== today()) {
                 newDay = today();
@@ -360,12 +475,15 @@ Singleton {
             s = w[g - 1];
             d = firstD(g);
         } else {
-            const days = (now - old.last) / day;
+            // Days since the last answer: whole days, as Anki counts them, or the part of
+            // one on the same day.
+            const sameDay = dayKey(old.last) === dayKey(now);
+            const days = sameDay ? (now - old.last) / day : daysBetween(old.last, now);
             // Right before it's due (the lock or a game asks one when none is): the long-term
             // formula, which barely changes a word just answered, where the same-day one would
             // make it ~40 % more stable on every unlock.
             const early = g > 1 && review && now < old.due;
-            if (days < 1 && !early)
+            if (sameDay && !early)
                 s = sameDayS(old.s, g);
             else if (g === 1)
                 s = forgottenS(old.d, old.s, recall(days, old.s));
@@ -374,15 +492,27 @@ Singleton {
             d = nextD(old.d, g);
         }
         s = Math.max(0.01, s);
-        const ivl = g === 1 ? 0 : interval(s);
+        // Missed today: right answers in a row needed, minutes apart, then tomorrow.
+        const day0 = today();
+        const missesToday = (old?.missDay === day0 ? old.missesToday ?? 0 : 0) + (g === 1 ? 1 : 0);
+        const stepRight = g === 1 || !missesToday ? 0 : (old?.missDay === day0 ? old.stepRight ?? 0 : 0) + 1;
+        const steps = Config.vocab.steps;
+        const stepping = g > 1 && missesToday > 0 && stepRight < Math.min(missesToday, steps.length + 1);
+        const ivl = g === 1 || stepping ? 0 : missesToday ? 1 : interval(s);
         sched[item.key] = {
-            due: g === 1 ? now + Config.vocab.relearn * 60000 : now + ivl * day,
+            due: g === 1 ? now + Config.vocab.relearn * 60000 : stepping ? now + steps[Math.min(stepRight, steps.length) - 1] * 60000 : dayAfter(now, ivl),
             last: now,
             s: Math.round(s * 1000) / 1000,
             d: Math.round(d * 1000) / 1000,
             reps: (old?.reps ?? 0) + 1,
             // Forgotten on review: not new words nor mistakes again in the same session.
-            lapses: (old?.lapses ?? 0) + (g === 1 && review ? 1 : 0)
+            lapses: (old?.lapses ?? 0) + (g === 1 && review ? 1 : 0),
+            misses: missesOf(old) + (g === 1 && old ? 1 : 0),
+            streak: g === 1 ? 0 : (old?.streak ?? 0) + (review ? 1 : 0),
+            learning: g === 1 || stepping,
+            missDay: missesToday ? day0 : undefined,
+            missesToday: missesToday || undefined,
+            stepRight: missesToday ? stepRight : undefined
         };
         const h = Object.assign({ n: 0, r: 0, w: 0 }, history[today()]);
         h.n++;
@@ -446,6 +576,26 @@ Singleton {
         return true;
     }
 
+    // Sets a word's memory aid (shown with the answer), keeping its note; "" removes it.
+    function setAid(card: var, aid: string): bool {
+        aid = aid.replace(/\s+/g, " ").replace(/ # /g, " – ").trim();
+        const lines = wordsFile.text().split("\n");
+        const line = lines[card.line];
+        if (line === undefined || !line.includes(card.front))
+            return false;
+        const note = [card.hint, aid ? `aid: ${aid}` : ""].filter(x => x).join(" # ");
+        if (line.includes("\t")) {
+            const cols = line.split("\t");
+            lines[card.line] = note ? `${cols[0]}\t${cols[1]}\t${note}` : `${cols[0]}\t${cols[1]}`;
+        } else {
+            const main = line.split(" # ")[0].replace(/\s+$/, "");
+            lines[card.line] = note ? `${main} # ${note}` : main;
+        }
+        wordsFile.setText(lines.join("\n"));
+        parse(lines.join("\n"));
+        return true;
+    }
+
     function remove(card: var): void {
         const lines = wordsFile.text().split("\n");
         if (lines[card.line] === undefined)
@@ -466,15 +616,21 @@ Singleton {
             }
             if (!line.trim())
                 return;
+            // The note's parts; one starting "aid:" is the memory aid.
+            const card = (front, back, note) => {
+                const parts = note.split(" # ").map(x => x.trim()).filter(x => x);
+                const aid = parts.find(x => /^aid:/i.test(x)) ?? "";
+                return { front, back, hint: parts.filter(x => x !== aid).join(" # "), aid: aid.replace(/^aid:\s*/i, ""), section, line: i };
+            };
             const tab = line.match(/^\s*([^\t]+?)\s*\t\s*([^\t]+?)\s*(?:\t\s*(.*?)\s*)?$/);
             if (tab) {
-                out.push({ front: tab[1], back: tab[2], hint: tab[3] ?? "", section, line: i });
+                out.push(card(tab[1], tab[2], tab[3] ?? ""));
                 return;
             }
             const [main, ...note] = line.split(" # ");
             const m = main.match(/^\s*(.+?)\s*=\s*(.+?)\s*$/);
             if (m)
-                out.push({ front: m[1], back: m[2], hint: note.join(" # ").trim(), section, line: i });
+                out.push(card(m[1], m[2], note.join(" # ")));
         });
         cards = out;
         version++;
@@ -484,7 +640,7 @@ Singleton {
     function reviewsDue(): int {
         return items.filter(i => {
             const s = sched[i.key];
-            return s && s.due <= now && s.due - s.last >= day / 2;
+            return s && s.due <= now && !learning(s);
         }).length;
     }
 
@@ -632,6 +788,11 @@ Singleton {
 
         function add(word: string, translation: string): string {
             return root.add(word, translation) ? `added ${word} = ${translation}` : "give a word and its translation";
+        }
+
+        // The hard words, most missed first, one per line.
+        function hardWords(): string {
+            return root.stats.hard.map(h => `${h.prompt} = ${h.answer} (missed ${h.misses}×)`).join("\n") || "no hard words";
         }
 
         function stats(): string {

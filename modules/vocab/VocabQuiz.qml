@@ -5,9 +5,13 @@ import qs.config
 import qs.services
 
 // A vocabulary card for a VocabSession: the word, a field for the translation, and after a
-// wrong answer the right one, to be typed out. In the launcher (manage) it also takes
-// "+word = translation" to add a word, Ctrl+Delete to remove the one shown, and shows what's
-// due and the settings (a click switches them), and the stats in place of the card.
+// wrong answer the right one, to be typed out, with the word it was mixed up with. Once
+// answered, the word's note and memory aid show. In the launcher (manage) it also takes
+// "+word = translation" to add a word, "# memory aid" to set the one shown's aid, Ctrl+Delete
+// to remove it, "I got it right" (or Ctrl+Enter) to count an answer judged wrong as right, and
+// shows what's due and the settings (a click switches them), and the stats in place of the
+// card. With MemoryAid set up, it suggests memory aids: for hard words by itself, for others
+// on a click; Tab keeps one.
 ColumnLayout {
     id: root
 
@@ -15,6 +19,11 @@ ColumnLayout {
     property bool manage
     readonly property var item: session.item
     readonly property string phase: session.phase
+    // Missed again and again (Vocab.hard).
+    readonly property bool hard: Vocab.hard(item)
+    // A memory aid suggested for the word shown, or being thought of.
+    readonly property bool aidHere: item !== null && MemoryAid.key === item.key
+    readonly property bool suggested: aidHere && MemoryAid.suggestion !== ""
     property string added
     // The stats show in place of the card.
     property bool showStats
@@ -41,6 +50,42 @@ ColumnLayout {
         input.forceActiveFocus();
     }
 
+    // Asks for a memory aid for the word shown; a right answer waits for it.
+    function suggestAid(): void {
+        if (!item || !MemoryAid.configured)
+            return;
+        MemoryAid.suggest(item, session.confused);
+        session.pause();
+    }
+
+    // Keeps the suggested memory aid with the word.
+    function keepAid(): void {
+        if (!suggested)
+            return;
+        const key = item.key;
+        if (Vocab.setAid(item.card, MemoryAid.suggestion)) {
+            added = "Memory aid kept";
+            MemoryAid.clear();
+            // The word again, with its aid.
+            session.item = Vocab.items.find(i => i.key === key) ?? session.item;
+        }
+    }
+
+    onItemChanged: if (MemoryAid.key && MemoryAid.key !== item?.key)
+        MemoryAid.clear()
+    // A hard word answered, without a memory aid yet: one is suggested by itself.
+    onPhaseChanged: if (manage && phase !== "ask" && hard && !item?.card.aid && MemoryAid.configured && !aidHere)
+        suggestAid()
+
+    function enter(event: var): void {
+        if (event.modifiers & Qt.ControlModifier && manage && session.canOverrule) {
+            session.overrule();
+            input.text = "";
+        } else {
+            submit();
+        }
+    }
+
     function submit(): void {
         const t = input.text;
         const add = t.match(/^\+\s*(.+?)\s*(?:=|\t)\s*(.+?)\s*$/);
@@ -50,6 +95,20 @@ ColumnLayout {
                 input.text = "";
                 if (!session.item)
                     session.start();
+            } else {
+                shake.restart();
+            }
+            return;
+        }
+        // A memory aid of one's own for the word shown.
+        if (manage && t.startsWith("#") && item) {
+            const key = item.key;
+            if (Vocab.setAid(item.card, t.slice(1))) {
+                added = t.slice(1).trim() ? "Memory aid saved" : "Memory aid removed";
+                MemoryAid.clear();
+                input.text = "";
+                // The word again, with its new note.
+                session.item = Vocab.items.find(i => i.key === key) ?? session.item;
             } else {
                 shake.restart();
             }
@@ -102,8 +161,8 @@ ColumnLayout {
 
             Text {
                 Layout.fillWidth: true
-                text: !root.item ? "Vocabulary" : root.item.dir === ">" ? "Translate" : "Translate back"
-                color: Config.colours.subtext
+                text: !root.item ? "Vocabulary" : `${root.session.practice ? "Final round, missed before" : root.item.dir === ">" ? "Translate" : "Translate back"}${root.hard ? ` · hard word, missed ${Vocab.misses(root.item)}×` : ""}`
+                color: root.hard ? Config.colours.red : Config.colours.subtext
                 font.family: Config.font.family
                 font.pointSize: Config.font.small
             }
@@ -174,6 +233,31 @@ ColumnLayout {
             }
         }
 
+        // A wrong answer that is another word's: which one.
+        Text {
+            Layout.fillWidth: true
+            Layout.topMargin: -6
+            visible: root.phase === "wrong" && root.session.confused !== null
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.Wrap
+            text: !root.session.confused ? "" : root.item?.dir === "<" ? `You typed ${root.session.confused.front}, which is ${root.session.confused.back}` : `Mixed up: that's ${root.session.confused.front} = ${root.session.confused.back}`
+            color: Config.colours.yellow
+            font.family: Config.font.family
+            font.pointSize: Config.font.small
+        }
+
+        // After an answer judged wrong, in the pane: it was right after all (a synonym, say).
+        VocabOption {
+            Layout.alignment: Qt.AlignHCenter
+            Layout.topMargin: -6
+            visible: root.manage && root.session.canOverrule
+            text: "\u{F012C} I got it right · Ctrl+Enter"
+            onClicked: {
+                root.session.overrule();
+                root.focusInput();
+            }
+        }
+
         // Under a right answer: anything about how it was typed, and when it's asked again.
         Text {
             Layout.fillWidth: true
@@ -198,6 +282,77 @@ ColumnLayout {
             font.family: Config.font.family
             font.pointSize: Config.font.small
             font.italic: true
+        }
+
+        // The word's memory aid, once answered.
+        Text {
+            Layout.fillWidth: true
+            visible: root.item !== null && root.phase !== "ask" && (root.item?.card.aid ?? "") !== "" && !root.suggested
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.Wrap
+            text: `\u{F0335} ${root.item?.card.aid ?? ""}`
+            color: Config.colours.text
+            font.family: Config.font.family
+            font.pointSize: Config.font.small
+        }
+
+        // A suggested memory aid, or one being thought of, in the pane.
+        Text {
+            Layout.fillWidth: true
+            visible: root.manage && root.aidHere && root.phase !== "ask" && (MemoryAid.loading || root.suggested || MemoryAid.error !== "")
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.Wrap
+            text: MemoryAid.loading ? "Thinking of a memory aid…" : root.suggested ? `\u{F0335} ${MemoryAid.suggestion}` : `No memory aid: ${MemoryAid.error}`
+            color: root.suggested ? Config.colours.yellow : Config.colours.muted
+            font.family: Config.font.family
+            font.pointSize: Config.font.small
+        }
+
+        // A hard word without memory aids set up: how to keep one of one's own.
+        Text {
+            Layout.fillWidth: true
+            visible: root.manage && root.item !== null && root.phase !== "ask" && root.hard && !MemoryAid.configured
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.Wrap
+            text: "Hard to remember? Type # and a memory aid (a picture, a similar word)"
+            color: Config.colours.muted
+            font.family: Config.font.family
+            font.pointSize: Config.font.small
+        }
+
+        // What can be done about a memory aid, once answered, in the pane.
+        RowLayout {
+            Layout.maximumWidth: parent.width
+            Layout.alignment: Qt.AlignHCenter
+            visible: root.manage && root.item !== null && root.phase !== "ask"
+            spacing: 16
+
+            VocabOption {
+                visible: root.suggested
+                text: "Keep it · Tab"
+                on: true
+                onClicked: {
+                    root.keepAid();
+                    root.focusInput();
+                }
+            }
+
+            VocabOption {
+                visible: MemoryAid.configured && !MemoryAid.loading
+                text: root.suggested ? "Another" : root.item?.card.aid ? "Suggest a better memory aid" : "\u{F0335} Suggest a memory aid"
+                onClicked: {
+                    root.suggestAid();
+                    root.focusInput();
+                }
+            }
+
+            Text {
+                visible: root.session.paused
+                text: "Enter goes on"
+                color: Config.colours.muted
+                font.family: Config.font.family
+                font.pointSize: Config.font.small
+            }
         }
 
         Rectangle {
@@ -267,9 +422,18 @@ ColumnLayout {
                 clip: true
                 focus: true
 
-                onTextChanged: if (text) root.session.typed()
-                Keys.onReturnPressed: root.submit()
-                Keys.onEnterPressed: root.submit()
+                // Typing a note isn't recalling the word.
+                onTextChanged: if (text && !text.startsWith("#")) root.session.typed()
+                // Ctrl+Enter after an answer judged wrong: it was right.
+                Keys.onReturnPressed: event => root.enter(event)
+                // Tab keeps a suggested memory aid.
+                Keys.onTabPressed: event => {
+                    if (root.manage && root.suggested)
+                        root.keepAid();
+                    else
+                        event.accepted = false;
+                }
+                Keys.onEnterPressed: event => root.enter(event)
                 Keys.onEscapePressed: root.escaped()
                 Keys.onPressed: event => {
                     if (event.key === Qt.Key_Backspace && input.text === "") {
