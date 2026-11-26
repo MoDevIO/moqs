@@ -34,6 +34,10 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         spacing: 14
 
+        PrivacyDot {
+            anchors.verticalCenter: parent.verticalCenter
+        }
+
         RecordingDot {
             anchors.verticalCenter: parent.verticalCenter
         }

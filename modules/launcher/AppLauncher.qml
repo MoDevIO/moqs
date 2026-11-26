@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import Quickshell
+import Quickshell.Hyprland
 import Quickshell.Widgets
 import qs.config
 import qs.modules.controlcentre as CC
@@ -19,6 +20,7 @@ import qs.services
 //   ; vocabulary practice ("+word = translation" adds one, Ctrl+Delete removes)
 //   / recent files                  # nixpkgs, started with nix run (Shift+Enter in a terminal)
 //   @ send a Matrix message: "@room message" (Enter sends; without a message, opens the room)
+//   , open windows by title or app, the last used first (Enter goes to it)
 Item {
     id: root
 
@@ -53,7 +55,7 @@ Item {
 
     readonly property string query: search.text.trim()
     // "apps", "calc" or "run", from the first character.
-    readonly property var prefixes: ({ "=": "calc", "!": "run", ">": "hass", "?": "web", ":": "emoji", ";": "vocab", "/": "file", "#": "nix", "@": "reply" })
+    readonly property var prefixes: ({ "=": "calc", "!": "run", ">": "hass", "?": "web", ":": "emoji", ";": "vocab", "/": "file", "#": "nix", "@": "reply", ",": "win" })
     readonly property string mode: prefixes[query.charAt(0)] ?? "apps"
     // "#" loads (and, if it's old, rebuilds) the nixpkgs index. Searching its 100 000-odd
     // packages waits for a pause in typing, so keys don't lag.
@@ -73,6 +75,9 @@ Item {
         // ">" lists every entity, with its state as of now.
         if (mode === "hass")
             HomeAssistant.loadAll();
+        // "," lists the windows, with their classes and focus order from Hyprland.
+        if (mode === "win")
+            Hyprland.refreshToplevels();
     }
     onRestChanged: if (mode === "nix")
         nixTimer.restart()
@@ -122,6 +127,27 @@ Item {
                 return [{ kind: "calc", expr: rest, result: c.error ? "" : Launcher.formatNumber(Number(c.value.toPrecision(7))), unit: c.unit ?? "", error: c.error ?? "" }];
             const v = Launcher.calculate(rest);
             return [{ kind: "calc", expr: rest, result: isNaN(v) ? "" : Launcher.formatNumber(v), unit: "", error: "" }];
+        }
+        case "win": {
+            // Not the windows a Steam game waits behind (GameGate).
+            const wins = Hyprland.toplevels.values.filter(t => t.lastIpcObject?.class !== undefined && t.workspace?.name !== GameGate.hideaway);
+            const out = [];
+            for (const t of wins) {
+                const ipc = t.lastIpcObject;
+                const entry = DesktopEntries.heuristicLookup(ipc.class ?? "");
+                const app = entry?.name ?? ipc.class ?? "";
+                const title = (t.title || ipc.title || "").toLowerCase();
+                const n = app.toLowerCase();
+                const sc = !q ? 50 : title.startsWith(q) || n.startsWith(q) ? 90 : title.split(/[\s\-_.—|:]+/).some(w => w.startsWith(q)) || n.split(/[\s\-_.]+/).some(w => w.startsWith(q)) ? 80 : title.includes(q) || n.includes(q) || (ipc.class ?? "").toLowerCase().includes(q) ? 70 : 0;
+                if (sc)
+                    out.push({ kind: "win", win: t, app, icon: entry?.icon ?? ipc.class ?? "", recent: ipc.focusHistoryID ?? 999, score: sc });
+            }
+            if (!out.length)
+                return [{ kind: "wininfo" }];
+            // The last used first, but the one in focus now last: Enter alone goes back to
+            // the one before, as Alt+Tab would.
+            const order = w => w.recent === 0 ? 9999 : w.recent;
+            return out.sort((a, b) => b.score - a.score || order(a) - order(b));
         }
         case "reply": {
             if (!Matrix.configured)
@@ -277,6 +303,11 @@ Item {
             else
                 HomeAssistant.run(item.cmd);
             break;
+        case "win":
+            Overview.focusWindow(item.win.address);
+            break;
+        case "wininfo":
+            return;
         case "reply":
             if (!item.message) {
                 root.closed();
@@ -316,6 +347,10 @@ Item {
             return item.emoji[1].charAt(0).toUpperCase() + item.emoji[1].slice(1);
         case "nix":
             return item.pkg[0];
+        case "win":
+            return item.win.title || item.app;
+        case "wininfo":
+            return "No window matches";
         case "reply":
             return Matrix.roomName(item.room);
         case "replyinfo":
@@ -362,6 +397,13 @@ Item {
             return item.emoji[2].split(" ").map(a => `:${a}:`).join(" ");
         case "nix":
             return [item.cached ? "In the store" : "", item.pkg[2], item.pkg[3]].filter(x => x).join(" · ");
+        case "win": {
+            const ws = item.win.workspace;
+            const where = !ws ? "" : ws.name.startsWith("special:") ? `special workspace ${ws.name.slice(8)}` : `workspace ${ws.name}`;
+            return [item.app, where, item.recent === 0 ? "in focus" : ""].filter(x => x).join(" · ");
+        }
+        case "wininfo":
+            return "Type part of a window's title or its app";
         case "reply":
             return item.message ? `Enter sends "${item.message}"` : "Type a message · Enter opens the room";
         case "replyinfo":
@@ -383,7 +425,7 @@ Item {
     }
 
     // Glyph for rows without an app icon, avatar or emoji.
-    readonly property var glyphs: ({ calc: "\u{F00EC}", timer: "\u{F13AB}", run: "\u{F018D}", web: "\u{F0349}", url: "\u{F059F}", nix: "\u{F1105}", nixinfo: "\u{F1105}", hassinfo: "\u{F07D0}", replyinfo: "\u{F0368}" })
+    readonly property var glyphs: ({ calc: "\u{F00EC}", timer: "\u{F13AB}", run: "\u{F018D}", web: "\u{F0349}", url: "\u{F059F}", nix: "\u{F1105}", nixinfo: "\u{F1105}", hassinfo: "\u{F07D0}", replyinfo: "\u{F0368}", wininfo: "\u{F05AF}" })
 
     readonly property int rowHeight: Config.launcher.row
     readonly property real targetWidth: open ? Config.launcher.width : Config.launcher.seed
@@ -657,6 +699,13 @@ Item {
 
                             IconImage {
                                 anchors.fill: parent
+                                visible: row.kind === "win"
+                                source: row.kind === "win" ? Quickshell.iconPath(row.modelData.icon, "application-x-executable") : ""
+                                asynchronous: true
+                            }
+
+                            IconImage {
+                                anchors.fill: parent
                                 visible: row.kind === "file"
                                 source: row.kind === "file" ? Quickshell.iconPath(Launcher.mimeIcon(row.modelData.file.mime), "text-x-generic") : ""
                                 asynchronous: true
@@ -681,7 +730,7 @@ Item {
                         }
 
                         Text {
-                            readonly property bool placeholder: (row.kind === "calc" && !row.modelData.result) || (row.kind === "run" && !row.modelData.command) || (row.kind === "web" && !row.modelData.text) || row.kind === "nixinfo" || row.kind === "hassinfo" || row.kind === "replyinfo"
+                            readonly property bool placeholder: (row.kind === "calc" && !row.modelData.result) || (row.kind === "run" && !row.modelData.command) || (row.kind === "web" && !row.modelData.text) || row.kind === "nixinfo" || row.kind === "hassinfo" || row.kind === "replyinfo" || row.kind === "wininfo"
 
                             Layout.maximumWidth: list.width * 0.6
                             text: root.title(row.modelData)
