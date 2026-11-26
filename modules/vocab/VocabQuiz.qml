@@ -70,13 +70,23 @@ ColumnLayout {
         }
     }
 
-    // A word that came due or was added while nothing was.
+    // A word that came due or was added while nothing was shown. Later, as picking a word
+    // updates what's due, which would start this again.
+    function resume(): void {
+        if (root.visible && !root.session.item && Vocab.cards.length)
+            root.session.start();
+    }
+
     Connections {
         target: Vocab
 
         function onVersionChanged(): void {
-            if (!root.session.item && Vocab.cards.length)
-                root.session.start();
+            Qt.callLater(root.resume);
+        }
+
+        function onDueCountChanged(): void {
+            if (Vocab.dueCount > 0)
+                Qt.callLater(root.resume);
         }
     }
 

@@ -62,8 +62,10 @@ QtObject {
             again = again.filter(a => a !== queued);
             return;
         }
-        // The words left to do today, besides those already coming back.
-        const left = Math.max(2, Vocab.dueCount + Vocab.newLeft - again.length);
+        // The words left to do today, besides those already coming back (which aren't due
+        // yet, as a mistake brings a word back only after minutes, so they aren't counted).
+        const queued = again.map(a => a.item.key);
+        const left = Math.max(2, Vocab.items.filter(i => !queued.includes(i.key) && Vocab.sched[i.key]?.due <= Vocab.now).length + Vocab.newLeft);
         const fails = (queued?.fails ?? 0) + 1;
         again = [...again.filter(a => a !== queued), { item, fails, wait: Math.max(2, Math.ceil(left / fails)) }];
     }
@@ -93,7 +95,8 @@ QtObject {
         // Nothing typed: show the answer to type out.
         const r = Vocab.check(item, text);
         if (phase === "ask") {
-            const days = Vocab.grade(item, r.ok ? Vocab.speedGrade(((firstKeyAt || Date.now()) - shownAt) / 1000) : 1);
+            const repeat = again.some(a => a.item.key === item.key);
+            const days = Vocab.grade(item, r.ok ? Vocab.speedGrade(((firstKeyAt || Date.now()) - shownAt) / 1000, repeat) : 1);
             requeue(r.ok);
             if (r.ok) {
                 phase = "right";

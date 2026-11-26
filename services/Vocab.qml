@@ -180,8 +180,10 @@ Singleton {
             return null;
         if (!all.length)
             return items[0] ?? null;
-        // A random one of those due soonest, so it isn't always the same.
-        return any(all.slice().sort((a, b) => (sched[a.key]?.due ?? 0) - (sched[b.key]?.due ?? 0)).slice(0, 5));
+        // A random one of those due soonest, so it isn't always the same. Words already seen,
+        // so the lock doesn't bring in new ones past the day's limit.
+        const seen = all.filter(i => sched[i.key]);
+        return any((seen.length ? seen : all).slice().sort((a, b) => (sched[a.key]?.due ?? 0) - (sched[b.key]?.due ?? 0)).slice(0, 5));
     }
 
     // ---- Checking answers
@@ -276,11 +278,13 @@ Singleton {
 
     // The grade of a right answer from how long recalling it took (seconds until the first
     // key): Hard (2) if slower than three quarters of the last ones, else Good (3). Remembers
-    // the time, capped so a walk away doesn't skew the rest.
-    function speedGrade(secs: real): int {
+    // the time, capped so a walk away doesn't skew the rest, unless `repeat` (a word asked
+    // again moments after its answer was shown, which is quick and would make others Hard).
+    function speedGrade(secs: real, repeat: bool): int {
         const sorted = times.slice().sort((a, b) => a - b);
         const slow = sorted.length >= 10 ? sorted[Math.floor(sorted.length * 0.75)] : Config.vocab.slow;
-        times = [...times, Math.round(Math.min(secs, 60) * 10) / 10].slice(-100);
+        if (!repeat)
+            times = [...times, Math.round(Math.min(secs, 60) * 10) / 10].slice(-100);
         return secs > slow ? 2 : 3;
     }
 
@@ -345,6 +349,8 @@ Singleton {
         lastAnswer = now;
         const old = upgrade(sched[item.key]);
         let s, d;
+        // A review (not a step minutes after a mistake) that isn't due yet.
+        const review = old && old.due - old.last >= day / 2;
         if (!old) {
             if (newDay !== today()) {
                 newDay = today();
@@ -355,7 +361,11 @@ Singleton {
             d = firstD(g);
         } else {
             const days = (now - old.last) / day;
-            if (days < 1)
+            // Right before it's due (the lock or a game asks one when none is): the long-term
+            // formula, which barely changes a word just answered, where the same-day one would
+            // make it ~40 % more stable on every unlock.
+            const early = g > 1 && review && now < old.due;
+            if (days < 1 && !early)
                 s = sameDayS(old.s, g);
             else if (g === 1)
                 s = forgottenS(old.d, old.s, recall(days, old.s));
@@ -371,7 +381,8 @@ Singleton {
             s: Math.round(s * 1000) / 1000,
             d: Math.round(d * 1000) / 1000,
             reps: (old?.reps ?? 0) + 1,
-            lapses: (old?.lapses ?? 0) + (g === 1 ? 1 : 0)
+            // Forgotten on review: not new words nor mistakes again in the same session.
+            lapses: (old?.lapses ?? 0) + (g === 1 && review ? 1 : 0)
         };
         const h = Object.assign({ n: 0, r: 0, w: 0 }, history[today()]);
         h.n++;
