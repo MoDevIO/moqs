@@ -148,8 +148,8 @@ in
     description = "The name other devices see for AirDrop. `null` uses the host name.";
   };
 
-  vocab.aids = {
-    enable = mkEnableOption "memory aids for hard vocabulary words, suggested by a language model behind an OpenAI-compatible API";
+  vocab.mnemonics = {
+    enable = mkEnableOption "mnemonics for hard vocabulary words, suggested by a language model behind an OpenAI-compatible API";
 
     url = mkOption {
       type = types.str;
@@ -181,7 +181,7 @@ in
       type = types.str;
       default = "";
       example = "German";
-      description = "Language the memory aids are written in. Empty: the translations' language.";
+      description = "Language the mnemonics are written in. Empty: the translations' language.";
     };
   };
 

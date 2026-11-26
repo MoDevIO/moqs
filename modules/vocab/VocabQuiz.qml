@@ -6,11 +6,11 @@ import qs.services
 
 // A vocabulary card for a VocabSession: the word, a field for the translation, and after a
 // wrong answer the right one, to be typed out, with the word it was mixed up with. Once
-// answered, the word's note and memory aid show. In the launcher (manage) it also takes
-// "+word = translation" to add a word, "# memory aid" to set the one shown's aid, Ctrl+Delete
+// answered, the word's note and mnemonic show. In the launcher (manage) it also takes
+// "+word = translation" to add a word, "# mnemonic" to set the one shown's mnemonic, Ctrl+Delete
 // to remove it, "I got it right" (or Ctrl+Enter) to count an answer judged wrong as right, and
 // shows what's due and the settings (a click switches them), and the stats in place of the
-// card. With MemoryAid set up, it suggests memory aids: for hard words by itself, for others
+// card. With Mnemonic set up, it suggests mnemonics: for hard words by itself, for others
 // on a click; Tab keeps one.
 ColumnLayout {
     id: root
@@ -21,9 +21,9 @@ ColumnLayout {
     readonly property string phase: session.phase
     // Missed again and again (Vocab.hard).
     readonly property bool hard: Vocab.hard(item)
-    // A memory aid suggested for the word shown, or being thought of.
-    readonly property bool aidHere: item !== null && MemoryAid.key === item.key
-    readonly property bool suggested: aidHere && MemoryAid.suggestion !== ""
+    // A mnemonic suggested for the word shown, or being thought of.
+    readonly property bool mnemonicHere: item !== null && Mnemonic.key === item.key
+    readonly property bool suggested: mnemonicHere && Mnemonic.suggestion !== ""
     property string added
     // The stats show in place of the card.
     property bool showStats
@@ -50,32 +50,32 @@ ColumnLayout {
         input.forceActiveFocus();
     }
 
-    // Asks for a memory aid for the word shown; a right answer waits for it.
-    function suggestAid(): void {
-        if (!item || !MemoryAid.configured)
+    // Asks for a mnemonic for the word shown; a right answer waits for it.
+    function suggestMnemonic(): void {
+        if (!item || !Mnemonic.configured)
             return;
-        MemoryAid.suggest(item, session.confused);
+        Mnemonic.suggest(item, session.confused);
         session.pause();
     }
 
-    // Keeps the suggested memory aid with the word.
-    function keepAid(): void {
+    // Keeps the suggested mnemonic with the word.
+    function keepMnemonic(): void {
         if (!suggested)
             return;
         const key = item.key;
-        if (Vocab.setAid(item.card, MemoryAid.suggestion)) {
-            added = "Memory aid kept";
-            MemoryAid.clear();
-            // The word again, with its aid.
+        if (Vocab.setMnemonic(item.card, Mnemonic.suggestion)) {
+            added = "Mnemonic kept";
+            Mnemonic.clear();
+            // The word again, with its mnemonic.
             session.item = Vocab.items.find(i => i.key === key) ?? session.item;
         }
     }
 
-    onItemChanged: if (MemoryAid.key && MemoryAid.key !== item?.key)
-        MemoryAid.clear()
-    // A hard word answered, without a memory aid yet: one is suggested by itself.
-    onPhaseChanged: if (manage && phase !== "ask" && hard && !item?.card.aid && MemoryAid.configured && !aidHere)
-        suggestAid()
+    onItemChanged: if (Mnemonic.key && Mnemonic.key !== item?.key)
+        Mnemonic.clear()
+    // A hard word answered, without a mnemonic yet: one is suggested by itself.
+    onPhaseChanged: if (manage && phase !== "ask" && hard && !item?.card.mnemonic && Mnemonic.configured && !mnemonicHere)
+        suggestMnemonic()
 
     function enter(event: var): void {
         if (event.modifiers & Qt.ControlModifier && manage && session.canOverrule) {
@@ -100,12 +100,12 @@ ColumnLayout {
             }
             return;
         }
-        // A memory aid of one's own for the word shown.
+        // A mnemonic of one's own for the word shown.
         if (manage && t.startsWith("#") && item) {
             const key = item.key;
-            if (Vocab.setAid(item.card, t.slice(1))) {
-                added = t.slice(1).trim() ? "Memory aid saved" : "Memory aid removed";
-                MemoryAid.clear();
+            if (Vocab.setMnemonic(item.card, t.slice(1))) {
+                added = t.slice(1).trim() ? "Mnemonic saved" : "Mnemonic removed";
+                Mnemonic.clear();
                 input.text = "";
                 // The word again, with its new note.
                 session.item = Vocab.items.find(i => i.key === key) ?? session.item;
@@ -284,43 +284,43 @@ ColumnLayout {
             font.italic: true
         }
 
-        // The word's memory aid, once answered.
+        // The word's mnemonic, once answered.
         Text {
             Layout.fillWidth: true
-            visible: root.item !== null && root.phase !== "ask" && (root.item?.card.aid ?? "") !== "" && !root.suggested
+            visible: root.item !== null && root.phase !== "ask" && (root.item?.card.mnemonic ?? "") !== "" && !root.suggested
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.Wrap
-            text: `\u{F0335} ${root.item?.card.aid ?? ""}`
+            text: `\u{F0335} ${root.item?.card.mnemonic ?? ""}`
             color: Config.colours.text
             font.family: Config.font.family
             font.pointSize: Config.font.small
         }
 
-        // A suggested memory aid, or one being thought of, in the pane.
+        // A suggested mnemonic, or one being thought of, in the pane.
         Text {
             Layout.fillWidth: true
-            visible: root.manage && root.aidHere && root.phase !== "ask" && (MemoryAid.loading || root.suggested || MemoryAid.error !== "")
+            visible: root.manage && root.mnemonicHere && root.phase !== "ask" && (Mnemonic.loading || root.suggested || Mnemonic.error !== "")
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.Wrap
-            text: MemoryAid.loading ? "Thinking of a memory aid…" : root.suggested ? `\u{F0335} ${MemoryAid.suggestion}` : `No memory aid: ${MemoryAid.error}`
+            text: Mnemonic.loading ? "Thinking of a mnemonic…" : root.suggested ? `\u{F0335} ${Mnemonic.suggestion}` : `No mnemonic: ${Mnemonic.error}`
             color: root.suggested ? Config.colours.yellow : Config.colours.muted
             font.family: Config.font.family
             font.pointSize: Config.font.small
         }
 
-        // A hard word without memory aids set up: how to keep one of one's own.
+        // A hard word without mnemonics set up: how to keep one of one's own.
         Text {
             Layout.fillWidth: true
-            visible: root.manage && root.item !== null && root.phase !== "ask" && root.hard && !MemoryAid.configured
+            visible: root.manage && root.item !== null && root.phase !== "ask" && root.hard && !Mnemonic.configured
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.Wrap
-            text: "Hard to remember? Type # and a memory aid (a picture, a similar word)"
+            text: "Hard to remember? Type # and a mnemonic (a sentence with a word that sounds like it)"
             color: Config.colours.muted
             font.family: Config.font.family
             font.pointSize: Config.font.small
         }
 
-        // What can be done about a memory aid, once answered, in the pane.
+        // What can be done about a mnemonic, once answered, in the pane.
         RowLayout {
             Layout.maximumWidth: parent.width
             Layout.alignment: Qt.AlignHCenter
@@ -332,16 +332,16 @@ ColumnLayout {
                 text: "Keep it · Tab"
                 on: true
                 onClicked: {
-                    root.keepAid();
+                    root.keepMnemonic();
                     root.focusInput();
                 }
             }
 
             VocabOption {
-                visible: MemoryAid.configured && !MemoryAid.loading
-                text: root.suggested ? "Another" : root.item?.card.aid ? "Suggest a better memory aid" : "\u{F0335} Suggest a memory aid"
+                visible: Mnemonic.configured && !Mnemonic.loading
+                text: root.suggested ? "Another" : root.item?.card.mnemonic ? "Suggest a better mnemonic" : "\u{F0335} Suggest a mnemonic"
                 onClicked: {
-                    root.suggestAid();
+                    root.suggestMnemonic();
                     root.focusInput();
                 }
             }
@@ -426,10 +426,10 @@ ColumnLayout {
                 onTextChanged: if (text && !text.startsWith("#")) root.session.typed()
                 // Ctrl+Enter after an answer judged wrong: it was right.
                 Keys.onReturnPressed: event => root.enter(event)
-                // Tab keeps a suggested memory aid.
+                // Tab keeps a suggested mnemonic.
                 Keys.onTabPressed: event => {
                     if (root.manage && root.suggested)
-                        root.keepAid();
+                        root.keepMnemonic();
                     else
                         event.accepted = false;
                 }

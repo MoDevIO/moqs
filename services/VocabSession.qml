@@ -200,7 +200,7 @@ QtObject {
             return false;
         }
         if (phase === "right") {
-            // Held for a memory aid: Enter goes on.
+            // Held for a mnemonic: Enter goes on.
             if (paused)
                 proceed();
             return false;
@@ -320,7 +320,7 @@ QtObject {
         right(`Counted as right · ${comesBack()}`);
     }
 
-    // Keeps a right answer on screen until Enter (proceed()), e.g. to read a memory aid.
+    // Keeps a right answer on screen until Enter (proceed()), e.g. to read a mnemonic.
     function pause(): void {
         if (phase !== "right" || gate)
             return;

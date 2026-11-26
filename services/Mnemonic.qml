@@ -4,13 +4,13 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 
-// Memory aids for vocabulary, suggested by a language model behind an OpenAI-compatible
+// Mnemonics for vocabulary, suggested by a language model behind an OpenAI-compatible
 // chat completions API (a local llama.cpp, Ollama or vLLM server, or any hosted one).
-// Settings come from aids.json next to shell.qml:
+// Settings come from mnemonics.json next to shell.qml:
 //   { "url": "http://localhost:11434/v1", "model": "llama3.1:8b",
 //     "apiKeyCommand": "pass show llm", "language": "German" }
 // "apiKey" works instead of "apiKeyCommand"; neither is needed for a server without keys.
-// "language" is what the aids are written in; without it, the translation's language.
+// "language" is what the mnemonics are written in; without it, the translation's language.
 //
 // The request goes through curl with the key on stdin (curl -K -), which keeps it out of the
 // process list. Only the word, its translation, its note and, after a mix-up, the other
@@ -34,7 +34,7 @@ Singleton {
     // Bumped per request, so an answer to an old one is dropped.
     property int request
 
-    // Asks for a memory aid for `item` (see Vocab.items); `confused` is a card mixed up with
+    // Asks for a mnemonic for `item` (see Vocab.items); `confused` is a card mixed up with
     // it, or null.
     function suggest(item: var, confused: var): void {
         if (!configured || !item)
@@ -56,23 +56,37 @@ Singleton {
             facts.push(`Notes: ${card.hint}`);
         if (card.section)
             facts.push(`From: ${card.section}`);
-        if (card.aid)
-            facts.push(`Current memory aid, which didn't work, so write a different one: ${card.aid}`);
+        if (card.mnemonic)
+            facts.push(`Current mnemonic, which didn't work, so write a different one: ${card.mnemonic}`);
         if (confused)
-            facts.push(`The learner mixed it up with: ${confused.front} = ${confused.back}. Help tell the two apart.`);
+            facts.push(`The learner mixed it up with: ${confused.front} = ${confused.back}. Write the sentence so it also tells the two apart.`);
         if (turnedDown.length)
-            facts.push(`The learner turned these suggestions down. Write a clearly different idea (another derived word or another picture), not a rewording of one of them:\n${turnedDown.map(x => `- ${x}`).join("\n")}`);
+            facts.push(`The learner turned these suggestions down. Write a clearly different one (another sound-alike word, another scene), not a rewording of one of them:\n${turnedDown.map(x => `- ${x}`).join("\n")}`);
         const language = settings.language || "the language of the meaning";
         const body = JSON.stringify({
             model: settings.model,
             // A little more variety once suggestions were turned down.
             temperature: turnedDown.length ? 1.0 : 0.8,
-            // Room for models that think first; the aid itself is short.
+            // Room for models that think first; the mnemonic itself is short.
             max_tokens: 2000,
             messages: [
                 {
                     role: "system",
-                    content: `You write memory aids (mnemonics) for a learner who keeps forgetting a vocabulary word. Reply with one memory aid only: at most two short sentences, no preamble, no quotes, no markdown. Good aids: a word in German or English derived from it or sharing its root (e.g. Latin dēcipere → English deception), or a vivid, slightly absurd picture linking how the word sounds to what it means. Never invent false etymology; if you aren't sure of a derivation, use a sound-alike picture instead. Write in ${language}.`
+                    content: [
+                        "You write a mnemonic for a learner who keeps forgetting a vocabulary word.",
+                        "The mnemonic is ONE short, everyday sentence, best in the first person and the present tense (\"Ich …\" in German, \"I …\" in English), that contains two things:",
+                        "1. a keyword from the learner's language that sounds like the foreign word or its beginning (sound-alike, not etymology), and",
+                        "2. the meaning itself, as the action or thing in the sentence.",
+                        "The keyword and the meaning meet in one concrete, easy-to-picture scene.",
+                        "Examples (Latin → German):",
+                        "ambulare = spazieren gehen → Ich spaziere über die Ampel.",
+                        "monstrare = zeigen → Ich zeige auf ein Monster.",
+                        "portare = tragen → Ich trage die Portion Pommes.",
+                        "clamare = rufen → Ich rufe nach meiner Klamotte.",
+                        "A real, well-known derived word (e.g. monstrare → demonstrieren) may serve as the keyword instead, in the same kind of sentence.",
+                        "Don't write \"Stell dir vor\", don't invent people or names, don't explain the link, no arrows, no word lists. At most 15 words.",
+                        `Write in ${language}. Reply with the sentence only: no preamble, no quotes, no markdown.`
+                    ].join("\n")
                 },
                 {
                     role: "user",
@@ -99,10 +113,10 @@ Singleton {
         return `"${String(s).replace(/(["\\])/g, "\\$1").replace(/\n/g, "\\n")}"`;
     }
 
-    // The aid in a reply: without a model's thinking, quotes or labels, on one line.
+    // The mnemonic in a reply: without a model's thinking, quotes or labels, on one line.
     function tidy(text: string): string {
         const quotes = /^["„“”'«»]+|["„“”'«»]+$/g;
-        return text.replace(/<think>[\s\S]*?<\/think>/g, "").replace(/^[\s\S]*<\/think>/, "").replace(/\*+|__|`/g, "").replace(/\s+/g, " ").trim().replace(quotes, "").replace(/^(memory aid|mnemonic|eselsbrücke|merkhilfe)\s*:\s*/i, "").replace(quotes, "").trim().slice(0, 300);
+        return text.replace(/<think>[\s\S]*?<\/think>/g, "").replace(/^[\s\S]*<\/think>/, "").replace(/\*+|__|`/g, "").replace(/\s+/g, " ").trim().replace(quotes, "").replace(/^(mnemonic|mnemonic|eselsbrücke|merkhilfe)\s*:\s*/i, "").replace(quotes, "").trim().slice(0, 300);
     }
 
     Component {
@@ -135,16 +149,16 @@ Singleton {
                         res = JSON.parse(text);
                     } catch (e) {}
                     const content = res?.choices?.[0]?.message?.content;
-                    // A reply that hit the token limit stops mid-sentence: not an aid.
+                    // A reply that hit the token limit stops mid-sentence: not a mnemonic.
                     const cut = res?.choices?.[0]?.finish_reason === "length";
-                    const aid = typeof content === "string" && !cut ? root.tidy(content) : "";
-                    if (aid) {
-                        root.suggestion = aid;
+                    const mnemonic = typeof content === "string" && !cut ? root.tidy(content) : "";
+                    if (mnemonic) {
+                        root.suggestion = mnemonic;
                     } else if (proc.retries > 0 && !cut) {
                         root.loading = true;
                         call.createObject(root, { config: proc.config, id: proc.id, retries: proc.retries - 1 });
                     } else {
-                        root.error = res?.error?.message ?? res?.error ?? (cut ? "The answer was cut off" : errors.text.trim().replace(/^curl: \(\d+\) /, "") || "No memory aid in the answer");
+                        root.error = res?.error?.message ?? res?.error ?? (cut ? "The answer was cut off" : errors.text.trim().replace(/^curl: \(\d+\) /, "") || "No mnemonic in the answer");
                     }
                 }
             }
@@ -158,7 +172,7 @@ Singleton {
     }
 
     FileView {
-        path: Quickshell.shellPath("aids.json")
+        path: Quickshell.shellPath("mnemonics.json")
         watchChanges: true
         printErrors: false
         onFileChanged: reload()

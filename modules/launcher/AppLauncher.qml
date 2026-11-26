@@ -526,6 +526,16 @@ Item {
         anchors.fill: parent
     }
 
+    // A press on the panel that misses a button, or just beside it, stays here rather than
+    // reaching the frame's click-outside catcher; only one further away closes it.
+    MouseArea {
+        anchors.fill: parent
+        anchors.leftMargin: -40
+        anchors.rightMargin: -40
+        anchors.bottomMargin: -40
+        enabled: root.open
+    }
+
     // Content keeps its full width while the panel animates, so it doesn't reflow.
     Item {
         anchors.fill: parent

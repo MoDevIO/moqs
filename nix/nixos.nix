@@ -77,6 +77,11 @@ let
   ];
 in
 {
+  # Renamed from vocab.aids; the old name still works, with a warning.
+  imports = [
+    (lib.mkRenamedOptionModule [ "services" "moqs" "vocab" "aids" ] [ "services" "moqs" "vocab" "mnemonics" ])
+  ];
+
   options.services.moqs = import ./options.nix { inherit lib; } // {
     user = lib.mkOption {
       type = lib.types.str;
@@ -113,7 +118,11 @@ in
         users.${cfg.user}.services.moqs = builtins.removeAttrs cfg [
           "user"
           "greeter"
-        ];
+        ]
+        # Without the old name's alias, which Home Manager has as well.
+        // {
+          vocab = builtins.removeAttrs cfg.vocab [ "aids" ];
+        };
       };
     })
 

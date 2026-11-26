@@ -40,6 +40,9 @@ Singleton {
     property string step
     property string message
     property real startedAt
+    // The update's unit was found gone while its log hadn't ended: killed, or the session
+    // ended. Its log then reads as failed rather than still running.
+    property bool stopped
     readonly property string stepName: ({ inputs: "Updating inputs", build: "Building", switch: "Switching", done: "Done", failed: "Failed" })[step] ?? ""
     // From the update's log, for the details: the steps reached in order, the inputs nix
     // flake update moved ([{ name, from, to }], dates as yyyy-MM-dd, `added` for new ones),
@@ -86,6 +89,7 @@ Singleton {
         if (!configured || running)
             return;
         running = true;
+        stopped = false;
         step = "inputs";
         message = "";
         startedAt = Date.now();
@@ -160,17 +164,24 @@ notify-send -a Updates -i emblem-default "System updated" "NixOS $(basename "$ou
         resized = sized;
         tail = all.filter(l => l.trim() && !l.startsWith("::")).slice(-8);
         const last = steps[steps.length - 1];
-        if (!last)
+        if (!last) {
+            if (stopped)
+                running = false;
             return;
+        }
         const m = last.match(/^::(\w+)\s*(.*)$/);
+        const was = running;
         step = m[1];
         message = m[2];
-        if (step === "done" || step === "failed") {
-            running = false;
-            check();
-        } else {
-            running = true;
+        if (step !== "done" && step !== "failed" && stopped) {
+            step = "failed";
+            message = "Stopped";
         }
+        running = step !== "done" && step !== "failed";
+        // Just finished: how far behind the new lock is. Only then, not on every read of an
+        // old log, which would ask GitHub again and again.
+        if (was && !running)
+            check();
     }
 
     Timer {
@@ -201,14 +212,11 @@ notify-send -a Updates -i emblem-default "System updated" "NixOS $(basename "$ou
         id: unitState
 
         command: ["systemctl", "--user", "is-active", "--quiet", "moqs-update"]
+        // Gone: its log has the end, or it was stopped. Read once more either way.
         onExited: code => {
-            if (code !== 0) {
+            if (code !== 0 && root.running) {
+                root.stopped = true;
                 logFile.reload();
-                if (root.step !== "done" && root.step !== "failed" && root.running) {
-                    root.running = false;
-                    root.step = "failed";
-                    root.message = "Stopped";
-                }
             }
         }
     }
@@ -251,8 +259,9 @@ notify-send -a Updates -i emblem-default "System updated" "NixOS $(basename "$ou
         onFileChanged: reload()
         onLoaded: {
             root.readLog(text());
-            // After a restart: still running?
-            unitState.running = true;
+            // After a restart, or a log that hasn't ended: still running?
+            if (root.running)
+                unitState.running = true;
         }
     }
 

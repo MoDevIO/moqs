@@ -82,20 +82,20 @@ let
         )
       } $out/hass.json
     ''}
-    ${lib.optionalString cfg.vocab.aids.enable ''
+    ${lib.optionalString cfg.vocab.mnemonics.enable ''
       cp ${
-        pkgs.writeText "aids.json" (
+        pkgs.writeText "mnemonics.json" (
           builtins.toJSON (
             {
-              inherit (cfg.vocab.aids) url model language;
+              inherit (cfg.vocab.mnemonics) url model language;
             }
-            // lib.optionalAttrs (cfg.vocab.aids.apiKeyCommand != null) { inherit (cfg.vocab.aids) apiKeyCommand; }
-            // lib.optionalAttrs (cfg.vocab.aids.apiKeyFile != null) {
-              apiKeyCommand = "cat ${lib.escapeShellArg cfg.vocab.aids.apiKeyFile}";
+            // lib.optionalAttrs (cfg.vocab.mnemonics.apiKeyCommand != null) { inherit (cfg.vocab.mnemonics) apiKeyCommand; }
+            // lib.optionalAttrs (cfg.vocab.mnemonics.apiKeyFile != null) {
+              apiKeyCommand = "cat ${lib.escapeShellArg cfg.vocab.mnemonics.apiKeyFile}";
             }
           )
         )
-      } $out/aids.json
+      } $out/mnemonics.json
     ''}
     ${lib.optionalString cfg.weather.enable ''
       cp ${
@@ -124,6 +124,11 @@ let
     ];
 in
 {
+  # Renamed from vocab.aids; the old name still works, with a warning.
+  imports = [
+    (lib.mkRenamedOptionModule [ "services" "moqs" "vocab" "aids" ] [ "services" "moqs" "vocab" "mnemonics" ])
+  ];
+
   options.services.moqs = import ./options.nix { inherit lib; } // {
     # The login screen is system-wide and lives in the NixOS module; this only catches it
     # being set here by mistake.
@@ -166,9 +171,9 @@ in
             (oneOf "webuntis" "school" cfg.webuntis.school cfg.webuntis.schoolFile)
           ]
           ++ lib.optional cfg.weather.enable (oneOf "weather" "location" cfg.weather.location cfg.weather.locationFile)
-          ++ lib.optional cfg.vocab.aids.enable {
-            assertion = cfg.vocab.aids.apiKeyFile == null || cfg.vocab.aids.apiKeyCommand == null;
-            message = "services.moqs.vocab.aids: set at most one of apiKeyFile or apiKeyCommand.";
+          ++ lib.optional cfg.vocab.mnemonics.enable {
+            assertion = cfg.vocab.mnemonics.apiKeyFile == null || cfg.vocab.mnemonics.apiKeyCommand == null;
+            message = "services.moqs.vocab.mnemonics: set at most one of apiKeyFile or apiKeyCommand.";
           };
 
         programs.quickshell = {

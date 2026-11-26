@@ -31,9 +31,10 @@ import qs.config
 // the day before, and words come due at the start of a day, not 24 hours after the answer.
 //
 // A word missed Config.vocab.leech times (not counting the first try of a new word) is a hard
-// word: it's marked while asked, the pane offers to keep a memory aid with it, and the stats
-// list it, until it's right on Config.vocab.leechCleared reviews in a row. A memory aid sits
-// in the word's line after the note as " # aid: …" (see MemoryAid for suggested ones).
+// word: it's marked while asked, the pane offers to keep a mnemonic with it, and the stats
+// list it, until it's right on Config.vocab.leechCleared reviews in a row. A mnemonic sits
+// in the word's line after the note as " # mnemonic: …" (see Mnemonic for suggested ones;
+// " # aid: …", the older form, still counts).
 //
 // Every answer is appended to vocab-log.jsonl (see log()), for tuning the scheduler later.
 //
@@ -58,8 +59,8 @@ Singleton {
     readonly property string logPath: `${stateDir}/vocab-log.jsonl`
     readonly property real day: 86400000
 
-    // [{ front, back, hint, aid, section, line }], line being its index in vocab.txt, section
-    // the comment heading it, hint its note (e.g. grammar) and aid its memory aid.
+    // [{ front, back, hint, mnemonic, section, line }], line being its index in vocab.txt, section
+    // the comment heading it, hint its note (e.g. grammar) and mnemonic its mnemonic.
     property var cards: []
     // Card key -> { due, last (ms), s (stability, days), d (difficulty, 1..10), reps, lapses,
     // misses (answers missed, the first of a new word aside), streak (reviews right in a row),
@@ -576,14 +577,14 @@ Singleton {
         return true;
     }
 
-    // Sets a word's memory aid (shown with the answer), keeping its note; "" removes it.
-    function setAid(card: var, aid: string): bool {
-        aid = aid.replace(/\s+/g, " ").replace(/ # /g, " – ").trim();
+    // Sets a word's mnemonic (shown with the answer), keeping its note; "" removes it.
+    function setMnemonic(card: var, mnemonic: string): bool {
+        mnemonic = mnemonic.replace(/\s+/g, " ").replace(/ # /g, " – ").trim();
         const lines = wordsFile.text().split("\n");
         const line = lines[card.line];
         if (line === undefined || !line.includes(card.front))
             return false;
-        const note = [card.hint, aid ? `aid: ${aid}` : ""].filter(x => x).join(" # ");
+        const note = [card.hint, mnemonic ? `mnemonic: ${mnemonic}` : ""].filter(x => x).join(" # ");
         if (line.includes("\t")) {
             const cols = line.split("\t");
             lines[card.line] = note ? `${cols[0]}\t${cols[1]}\t${note}` : `${cols[0]}\t${cols[1]}`;
@@ -616,11 +617,11 @@ Singleton {
             }
             if (!line.trim())
                 return;
-            // The note's parts; one starting "aid:" is the memory aid.
+            // The note's parts; one starting "mnemonic:" (or the older "aid:") is the mnemonic.
             const card = (front, back, note) => {
                 const parts = note.split(" # ").map(x => x.trim()).filter(x => x);
-                const aid = parts.find(x => /^aid:/i.test(x)) ?? "";
-                return { front, back, hint: parts.filter(x => x !== aid).join(" # "), aid: aid.replace(/^aid:\s*/i, ""), section, line: i };
+                const mnemonic = parts.find(x => /^(mnemonic|aid):/i.test(x)) ?? "";
+                return { front, back, hint: parts.filter(x => x !== mnemonic).join(" # "), mnemonic: mnemonic.replace(/^(mnemonic|aid):\s*/i, ""), section, line: i };
             };
             const tab = line.match(/^\s*([^\t]+?)\s*\t\s*([^\t]+?)\s*(?:\t\s*(.*?)\s*)?$/);
             if (tab) {
