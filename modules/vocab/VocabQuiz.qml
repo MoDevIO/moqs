@@ -161,7 +161,7 @@ ColumnLayout {
 
             Text {
                 Layout.fillWidth: true
-                text: !root.item ? "Vocabulary" : `${root.session.practice ? "Final round, missed before" : root.item.dir === ">" ? "Translate" : "Translate back"}${root.hard ? ` · hard word, missed ${Vocab.misses(root.item)}×` : ""}`
+                text: !root.item ? "Vocabulary" : `${root.session.practice ? "Final round, missed before" : root.session.retrying ? "Once more, for practice" : root.item.dir === ">" ? "Translate" : "Translate back"}${root.hard ? ` · hard word, missed ${Vocab.misses(root.item)}×` : ""}`
                 color: root.hard ? Config.colours.red : Config.colours.subtext
                 font.family: Config.font.family
                 font.pointSize: Config.font.small
@@ -182,7 +182,7 @@ ColumnLayout {
             Layout.topMargin: 6
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.Wrap
-            text: root.item ? root.item.prompt : Vocab.cards.length ? "All caught up" : "No words yet"
+            text: root.item ? root.item.prompt : root.session.waitUntil ? `Once more in ${Math.max(1, Math.ceil((root.session.waitUntil - root.session.clock) / 1000))} s` : Vocab.cards.length ? "All caught up" : "No words yet"
             color: root.item ? Config.colours.text : Config.colours.subtext
             font.family: Config.font.sans
             font.pointSize: root.item ? 22 : Config.font.size + 2
@@ -194,7 +194,7 @@ ColumnLayout {
             visible: !root.item
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.Wrap
-            text: Vocab.cards.length ? (Vocab.nextDue ? `The next word is due ${root.when(Vocab.nextDue)}` : "") : `Type +word = translation below, or add lines like that to ${Vocab.wordsPath.replace(Quickshell.env("HOME"), "~")}`
+            text: root.session.waitUntil ? "The word you just missed comes back after a pause, so you recall it instead of copying it" : Vocab.cards.length ? (Vocab.nextDue ? `The next word is due ${root.when(Vocab.nextDue)}` : "") : `Type +word = translation below, or add lines like that to ${Vocab.wordsPath.replace(Quickshell.env("HOME"), "~")}`
             color: Config.colours.subtext
             font.family: Config.font.family
             font.pointSize: Config.font.small
@@ -204,7 +204,7 @@ ColumnLayout {
         HoldButton {
             Layout.alignment: Qt.AlignHCenter
             Layout.topMargin: 4
-            visible: root.manage && !root.item && Vocab.freshCount > 0
+            visible: root.manage && !root.item && !root.session.waitUntil && Vocab.freshCount > 0
             text: `Learn more · hold`
             onHeld: {
                 Vocab.learnMore();

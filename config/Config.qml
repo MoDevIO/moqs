@@ -168,6 +168,9 @@ Singleton {
         // A word missed n times today has to be right min(n, steps + 1) times in a row before
         // it waits for tomorrow, these many minutes apart.
         readonly property var steps: [10, 30]
+        // Seconds before a missed word is asked again when no other word is left to put in
+        // between; that time it's practice and doesn't count.
+        readonly property int retryGap: 60
         readonly property int emergency: 60
         // FSRS: the chance of still remembering a word when it's asked again, and the most
         // days between two asks.

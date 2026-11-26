@@ -14,9 +14,12 @@ import qs.config
 //
 // In the pane (not the lock, which asks a new word until one is right), a word answered wrong
 // comes back in this session: first after the words left to do, and the more often it was
-// wrong, the sooner. Once nothing else is left, these are asked until each is right. Then
-// comes a final round: every word missed in the session once more, for practice (it doesn't
-// change the schedule), until each is right.
+// wrong, the sooner. With no other word left to put in between, a missed word comes back
+// only after Config.vocab.retryGap seconds (`waitUntil`), and then for practice (`retrying`):
+// right after typing it out, a right answer would say nothing; it counts once it's due again
+// (Vocab's learning steps). When all is done comes a final round: the words missed in the
+// session once more, for practice, until each is right; not those still being learnt, which
+// come back for real anyway, nor the one just answered.
 //
 // Every answer goes to Vocab.log().
 QtObject {
@@ -45,6 +48,13 @@ QtObject {
     property var round: null
     // The word asked is the final round's.
     property bool practice
+    // The word asked is the one just missed, again for practice, nothing else being left.
+    property bool retrying
+    // Waiting before asking the word with key waitKey again, until waitUntil (ms); clock
+    // ticks meanwhile for the countdown.
+    property string waitKey
+    property real waitUntil
+    property real clock
     // After an answer judged wrong (something typed, not the pane's lock or game): what it
     // changed, for overrule(). Else null.
     property var undo: null
@@ -59,7 +69,7 @@ QtObject {
     // Moves on to the next word.
     function start(): void {
         advance.stop();
-        const prev = item?.key ?? "";
+        const prev = item?.key ?? waitKey;
         // Words removed, or no longer asked this way round, drop out.
         const keys = Vocab.items.map(i => i.key);
         const queue = again.filter(a => keys.includes(a.item.key));
@@ -70,16 +80,31 @@ QtObject {
         // Due back now, the most failed first; else a word as usual; else, nothing else left,
         // the one due back soonest.
         const ready = others.filter(a => a.wait <= 0).sort((x, y) => y.fails - x.fails)[0];
-        let next = ready?.item ?? Vocab.pick(gate, prev, queue.map(a => a.item.key)) ?? others.sort((x, y) => x.wait - y.wait)[0]?.item ?? queue[0]?.item ?? null;
+        let next = ready?.item ?? Vocab.pick(gate, prev, queue.map(a => a.item.key)) ?? others.sort((x, y) => x.wait - y.wait)[0]?.item ?? null;
+        // Only the word just missed is left: after a pause, and for practice until it's due.
+        let retry = false;
+        if (!next && queue.length) {
+            const at = (queue[0].missedAt ?? 0) + Config.vocab.retryGap * 1000;
+            if (Date.now() < at) {
+                wait(queue[0].item.key, at);
+                return;
+            }
+            next = queue[0].item;
+            retry = (Vocab.sched[next.key]?.due ?? 0) > Date.now();
+        }
         // All done: the final round, the missed words once more in a new order.
         if (!next && !gate && missed.length) {
             if (round === null)
-                round = missed.filter(i => keys.includes(i.key)).map(i => ({ i, r: Math.random() })).sort((a, b) => a.r - b.r).map(x => x.i);
+                round = missed.filter(i => keys.includes(i.key) && i.key !== prev && !Vocab.sched[i.key]?.learning).map(i => ({ i, r: Math.random() })).sort((a, b) => a.r - b.r).map(x => x.i);
             else
                 round = round.filter(i => keys.includes(i.key));
             next = round.find(i => i.key !== prev) ?? round[0] ?? null;
         }
         practice = !!next && round !== null && round.includes(next);
+        retrying = retry;
+        waitKey = "";
+        waitUntil = 0;
+        retryTimer.stop();
         phase = "ask";
         note = "";
         confused = null;
@@ -106,7 +131,23 @@ QtObject {
         const waiting = again.map(a => a.item.key);
         const left = Math.max(2, Vocab.items.filter(i => !waiting.includes(i.key) && Vocab.sched[i.key]?.due <= Vocab.now).length + Vocab.newLeft);
         const fails = (queued?.fails ?? 0) + 1;
-        again = [...again.filter(a => a !== queued), { item, fails, wait: Math.max(2, Math.ceil(left / fails)) }];
+        again = [...again.filter(a => a !== queued), { item, fails, wait: Math.max(2, Math.ceil(left / fails)), missedAt: Date.now() }];
+    }
+
+    // Nothing to ask until `at`, then the word with `key` again.
+    function wait(key: string, at: real): void {
+        phase = "ask";
+        note = "";
+        confused = null;
+        undo = null;
+        paused = false;
+        practice = false;
+        retrying = false;
+        item = null;
+        waitKey = key;
+        waitUntil = at;
+        clock = Date.now();
+        retryTimer.restart();
     }
 
     // Something was typed in the field.
@@ -127,6 +168,10 @@ QtObject {
         missed = [];
         round = null;
         practice = false;
+        retrying = false;
+        waitKey = "";
+        waitUntil = 0;
+        retryTimer.stop();
     }
 
     // The log's record of an answer to the word shown.
@@ -162,20 +207,32 @@ QtObject {
         }
         // Nothing typed: show the answer to type out.
         const r = Vocab.check(item, text);
-        if (phase === "ask" && practice) {
-            // The final round: practice, the schedule stays.
+        if (phase === "ask" && (practice || retrying)) {
+            // The final round, or the word just missed again: practice, the schedule stays.
             const t = Date.now();
             confused = r.ok ? null : Vocab.mixup(item, text);
             Vocab.log(record(text, r, { t, practice: true }));
             if (r.ok) {
-                round = round.filter(i => i.key !== item.key);
-                right(r.note);
+                if (retrying) {
+                    // It's asked for real once due.
+                    again = again.filter(a => a.item.key !== item.key);
+                    right([r.note, countsWhen()].filter(x => x).join(" · "));
+                } else {
+                    round = round.filter(i => i.key !== item.key);
+                    right(r.note);
+                }
             } else {
-                // To the end of the round.
-                round = [...round.filter(i => i.key !== item.key), item];
+                if (retrying) {
+                    const queued = again.find(a => a.item.key === item.key);
+                    if (queued)
+                        queued.missedAt = t;
+                } else {
+                    // To the end of the round.
+                    round = [...round.filter(i => i.key !== item.key), item];
+                }
                 phase = "wrong";
                 note = "";
-                undo = text.trim() ? { practice: true, t } : null;
+                undo = text.trim() ? { practice: true, retry: retrying, t } : null;
                 rejected();
             }
             return true;
@@ -223,6 +280,12 @@ QtObject {
         return `Again ${days <= 1 ? "tomorrow" : `in ${days} days`}`;
     }
 
+    // After practising the word just missed: when it's asked for real.
+    function countsWhen(): string {
+        const due = Vocab.sched[item.key]?.due ?? 0;
+        return `Practice only: it counts when asked again in ${Math.max(1, Math.round((due - Date.now()) / 60000))} min`;
+    }
+
     // Shows a right answer, then moves on. In the final round, says how many are left.
     function right(said: string): void {
         phase = "right";
@@ -239,6 +302,11 @@ QtObject {
         undo = null;
         confused = null;
         Vocab.log({ t: Date.now(), day: Vocab.today(), where, key: item.key, overrules: snap.t });
+        if (snap.retry) {
+            again = again.filter(a => a.item.key !== item.key);
+            right(`Counted as right · ${countsWhen()}`);
+            return;
+        }
         if (snap.practice) {
             round = round.filter(i => i.key !== item.key);
             right("Counted as right");
@@ -267,6 +335,17 @@ QtObject {
             passed();
         else
             start();
+    }
+
+    // The countdown before the word just missed comes back.
+    property Timer retryTimer: Timer {
+        interval: 1000
+        repeat: true
+        onTriggered: {
+            root.clock = Date.now();
+            if (root.clock >= root.waitUntil)
+                root.start();
+        }
     }
 
     // Leaves "right" on screen for a moment.

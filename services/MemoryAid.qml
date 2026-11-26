@@ -55,7 +55,8 @@ Singleton {
         const body = JSON.stringify({
             model: settings.model,
             temperature: 0.8,
-            max_tokens: 400,
+            // Room for models that think first; the aid itself is short.
+            max_tokens: 2000,
             messages: [
                 {
                     role: "system",
@@ -70,7 +71,7 @@ Singleton {
         const lines = [`url = ${quote(`${url}/chat/completions`)}`, `header = "Content-Type: application/json"`, `data = ${quote(body)}`];
         if (apiKey)
             lines.push(`header = ${quote(`Authorization: Bearer ${apiKey}`)}`);
-        call.createObject(root, { config: lines.join("\n") + "\n", id });
+        call.createObject(root, { config: lines.join("\n") + "\n", id, retries: 1 });
     }
 
     function clear(): void {
@@ -99,6 +100,8 @@ Singleton {
 
             required property string config
             required property int id
+            // Tries left after a failure: servers fail now and then (vLLM's "EngineCore").
+            required property int retries
 
             command: ["curl", "-sS", "--max-time", "60", "-K", "-"]
             stdinEnabled: true
@@ -119,11 +122,17 @@ Singleton {
                         res = JSON.parse(text);
                     } catch (e) {}
                     const content = res?.choices?.[0]?.message?.content;
-                    const aid = typeof content === "string" ? root.tidy(content) : "";
-                    if (aid)
+                    // A reply that hit the token limit stops mid-sentence: not an aid.
+                    const cut = res?.choices?.[0]?.finish_reason === "length";
+                    const aid = typeof content === "string" && !cut ? root.tidy(content) : "";
+                    if (aid) {
                         root.suggestion = aid;
-                    else
-                        root.error = res?.error?.message ?? res?.error ?? (errors.text.trim().replace(/^curl: \(\d+\) /, "") || "No memory aid in the answer");
+                    } else if (proc.retries > 0 && !cut) {
+                        root.loading = true;
+                        call.createObject(root, { config: proc.config, id: proc.id, retries: proc.retries - 1 });
+                    } else {
+                        root.error = res?.error?.message ?? res?.error ?? (cut ? "The answer was cut off" : errors.text.trim().replace(/^curl: \(\d+\) /, "") || "No memory aid in the answer");
+                    }
                 }
             }
 
