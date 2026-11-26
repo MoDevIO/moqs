@@ -113,6 +113,8 @@ Singleton {
         readonly property int mergeGap: 15
         // Minutes between refreshes.
         readonly property int refresh: 15
+        // Minutes between timetable-only fetches that look for changes to notify about.
+        readonly property int changeCheck: 2
     }
 
     readonly property QtObject weather: QtObject {

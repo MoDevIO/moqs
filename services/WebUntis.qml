@@ -39,6 +39,9 @@ Singleton {
     property string error
     property bool loading
     property real lastRefresh: 0
+    // When the timetable alone was last fetched to look for changes, and whether that's under way.
+    property real lastCheck: 0
+    property bool checking
 
     // Lessons of the fetched days, double lessons merged:
     // [{ date, start, end, subject, teachers, rooms, text, cancelled, changed }]
@@ -359,12 +362,23 @@ Singleton {
             refresh();
     }
 
+    // Fetches only the coming days' lessons, often, so timetable changes are notified soon
+    // after they're made; homework, exams and subjects wait for the next refresh.
+    function checkChanges(): void {
+        if (!configured || loading || checking)
+            return;
+        checking = true;
+        lastCheck = Date.now();
+        session((cookie, element, done) => timetable(cookie, element, today, addDays(today, Config.webuntis.days), done), () => checking = false);
+    }
+
     function refresh(): void {
         if (!configured || loading)
             return;
         loading = true;
         // Also on failure, so a wrong password isn't retried every minute.
         lastRefresh = Date.now();
+        lastCheck = lastRefresh;
         session((cookie, element, done) => {
             let pending = 4;
             const finish = () => {
@@ -731,6 +745,8 @@ Singleton {
             // A new day needs a new timetable.
             if (root.today !== day || Date.now() - root.lastRefresh > Config.webuntis.refresh * 60 * 1000)
                 root.refresh();
+            else if (Date.now() - root.lastCheck > Config.webuntis.changeCheck * 60 * 1000 - 5000)
+                root.checkChanges();
         }
     }
 
