@@ -41,6 +41,7 @@ let
           launcher.search = cfg.launcher.searchEngine;
           lock.pam = cfg.lock.pamService;
           updates = lib.filterAttrs (_: v: v != null) { inherit (cfg.updates) flake host; };
+          capture.ocr = cfg.capture.ocrLanguages;
         }
       )
     } $out/settings.json
@@ -196,6 +197,7 @@ in
             grim
             hyprsunset
             libnotify
+            (tesseract.override { enableLanguages = cfg.capture.ocrLanguages; })
             wf-recorder
             wl-clipboard
             xdg-utils

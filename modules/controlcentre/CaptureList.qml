@@ -4,7 +4,8 @@ import qs.config
 import qs.services
 
 // What the Capture tile can take: a screenshot of a window or region (picked on
-// CaptureSelect), the screen or the active window, or a recording of a picked one or the screen.
+// CaptureSelect), the screen or the active window, the text in a picked one (copied), or a
+// recording of a picked one or the screen.
 Rectangle {
     id: root
 
@@ -26,9 +27,10 @@ Rectangle {
                 { icon: "\u{F019E}", title: "Screenshot: pick a window or region", run: () => Capture.screenshot("pick") },
                 { icon: "\u{F0379}", title: "Screenshot of the screen", run: () => Capture.screenshot("screen") },
                 { icon: "\u{F0614}", title: "Screenshot of the active window", run: () => Capture.screenshot("window") },
+                { icon: "\u{F113D}", title: "Copy text: pick a window or region", run: () => Capture.text("pick"), read: true },
                 { icon: "\u{F0EC2}", title: "Record: pick a window or region", run: () => Capture.record("pick"), record: true },
                 { icon: "\u{F0EC2}", title: "Record the screen", run: () => Capture.record("screen"), record: true }
-            ].filter(x => !x.record || Capture.canRecord)
+            ].filter(x => (!x.record || Capture.canRecord) && (!x.read || Capture.canRead))
 
             ListRow {
                 required property var modelData

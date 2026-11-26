@@ -161,7 +161,7 @@ Variants {
                 id: hint
 
                 anchors.centerIn: parent
-                text: `${Capture.selectFor === "record" ? "Record" : "Screenshot"}: click a window · drag a region · Space for the screen · Esc cancels`
+                text: `${({ record: "Record", text: "Copy text" })[Capture.selectFor] ?? "Screenshot"}: click a window · drag a region · Space for the screen · Esc cancels`
                 color: Config.colours.subtext
                 font.family: Config.font.family
                 font.pointSize: Config.font.small

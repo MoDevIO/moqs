@@ -124,6 +124,23 @@ in
     };
   };
 
+  capture.ocrLanguages = mkOption {
+    type = types.listOf types.str;
+    default = [
+      "eng"
+      "deu"
+    ];
+    example = [
+      "eng"
+      "deu"
+      "lat"
+    ];
+    description = ''
+      Languages the Capture tile's "Copy text" reads (tesseract's codes: eng, deu, lat, fra,
+      …). Only these are installed; each makes reading a little slower.
+    '';
+  };
+
   airdrop.name = mkOption {
     type = types.nullOr types.str;
     default = null;

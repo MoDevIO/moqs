@@ -10,16 +10,19 @@ import qs.config
 // picked on CaptureSelect, a dimmed layer over the focused screen: a click takes the window
 // under the pointer, a drag a region, Space the whole screen. A screenshot (grim) is copied
 // and saved to Config.capture.dir; a recording (wf-recorder) is saved there as an mp4 when
-// stopped. Over IPC:
+// stopped. Text (tesseract, in Settings.ocrLanguages, those of them installed) is read from
+// a screenshot taken at twice the size, which it reads better, and copied. Over IPC:
 //   qs ipc call capture screenshot pick     (also screen, window: the active one)
+//   qs ipc call capture text pick           (also screen, window)
 //   qs ipc call capture record pick         (also screen; record again stops it)
 //   qs ipc call capture stop
 Singleton {
     id: root
 
     readonly property string dir: Config.capture.dir.replace(/^~/, Quickshell.env("HOME"))
-    // wf-recorder is installed.
+    // wf-recorder and tesseract are installed.
     property bool canRecord: true
+    property bool canRead: true
     readonly property bool recording: recorder.running
     property real since
     property real now: Date.now()
@@ -62,6 +65,28 @@ Singleton {
         }
     }
 
+    // Reads the text in a picked region, the screen or the active window, and copies it.
+    function text(mode: string): void {
+        if (mode === "screen") {
+            read(screenGeometry());
+        } else if (mode === "window") {
+            Hyprland.refreshToplevels();
+            const w = Hyprland.activeToplevel?.lastIpcObject;
+            read(w?.at && w?.size ? geometry(w.at[0], w.at[1], w.size[0], w.size[1]) : screenGeometry());
+        } else {
+            pick("text");
+        }
+    }
+
+    function read(g: string): void {
+        if (!g || ocr.running)
+            return;
+        ocr.command = ["sh", "-c", `have=$(tesseract --list-langs 2>/dev/null | tail -n +2)
+langs=$(for l in $(echo "$2" | tr "+" " "); do printf "%s\\n" "$have" | grep -qx "$l" && echo "$l"; done | paste -sd+)
+grim -s 2 -g "$1" - | tesseract stdin stdout -l "\${langs:-eng}" 2>/dev/null`, "sh", g, Settings.ocrLanguages];
+        ocr.running = true;
+    }
+
     function record(mode: string): void {
         if (recording) {
             stop();
@@ -99,6 +124,8 @@ Singleton {
         onTriggered: {
             if (root.selectFor === "record")
                 root.startRecording(root.pending);
+            else if (root.selectFor === "text")
+                root.read(root.pending);
             else
                 root.take(root.pending);
         }
@@ -147,6 +174,27 @@ case "$action" in default) xdg-open "$2" ;; folder) xdg-open "$(dirname "$2")" ;
         }
     }
 
+    // The text read: copied, and shown in a notification.
+    Process {
+        id: ocr
+
+        stdout: StdioCollector {
+            id: ocrOut
+        }
+
+        onExited: code => {
+            const text = ocrOut.text.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+            if (code !== 0) {
+                Quickshell.execDetached(["notify-send", "-a", "Text", "-i", "dialog-error", "Couldn't read the text", "Is tesseract installed?"]);
+            } else if (!text) {
+                Quickshell.execDetached(["notify-send", "-a", "Text", "-i", "edit-copy", "No text found"]);
+            } else {
+                Quickshell.execDetached(["wl-copy", "--", text]);
+                Quickshell.execDetached(["notify-send", "-a", "Text", "-i", "edit-copy", `Text copied · ${text.split(/\s+/).length} words`, text.length > 300 ? `${text.slice(0, 300)}…` : text]);
+            }
+        }
+    }
+
     Process {
         id: recorder
 
@@ -171,11 +219,21 @@ case "$action" in default) xdg-open "$2" ;; folder) xdg-open "$(dirname "$2")" ;
         onExited: code => root.canRecord = code === 0
     }
 
+    Process {
+        running: true
+        command: ["sh", "-c", "command -v tesseract"]
+        onExited: code => root.canRead = code === 0
+    }
+
     IpcHandler {
         target: "capture"
 
         function screenshot(mode: string): void {
             root.screenshot(mode || "pick");
+        }
+
+        function text(mode: string): void {
+            root.text(mode || "pick");
         }
 
         function record(mode: string): void {

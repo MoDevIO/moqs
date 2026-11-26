@@ -8,7 +8,8 @@ import qs.config
 // Behaviour settings from settings.json next to shell.qml:
 //   { "dragToOpen": { "notifications": false, "music": true, "matrix": true },
 //     "launcher": { "search": "https://duckduckgo.com/?q=%s" }, "lock": { "pam": "login" },
-//     "updates": { "flake": "/home/me/nixos-config", "host": "laptop" } }
+//     "updates": { "flake": "/home/me/nixos-config", "host": "laptop" },
+//     "capture": { "ocr": ["eng", "deu"] } }
 // dragToOpen: the corner's panel is pulled out of the border, like the dashboard, instead
 // of opening when the pointer reaches the corner.
 // launcher.search: the launcher's web search ("?…"), %s standing for the query. Without
@@ -16,12 +17,15 @@ import qs.config
 // lock.pam: the PAM service (a file in /etc/pam.d) the lock screen checks passwords with.
 // updates: the system flake the control centre's Updates tile updates and rebuilds, and its
 // nixosConfigurations name (this machine's hostname without one); see Updates.
+// capture.ocr: the languages Capture's "Copy text" reads, tesseract's codes; English and
+// German without it.
 Singleton {
     readonly property alias dragToOpen: settings.dragToOpen
     readonly property string search: settings.launcher.search.includes("%s") ? settings.launcher.search : Config.launcher.search
     readonly property string lockPam: settings.lock.pam || "login"
     readonly property string updatesFlake: settings.updates.flake
     readonly property string updatesHost: settings.updates.host
+    readonly property string ocrLanguages: Array.from(settings.capture.ocr ?? []).join("+") || "eng+deu"
 
     FileView {
         path: Quickshell.shellPath("settings.json")
@@ -49,6 +53,10 @@ Singleton {
             property JsonObject updates: JsonObject {
                 property string flake
                 property string host
+            }
+
+            property JsonObject capture: JsonObject {
+                property var ocr: []
             }
         }
     }
