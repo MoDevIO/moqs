@@ -28,6 +28,9 @@ Singleton {
     property string suggestion
     property bool loading
     property string error
+    // The suggestions turned down for this word ("Another"), sent along so the next isn't
+    // the same idea again.
+    property var turnedDown: []
     // Bumped per request, so an answer to an old one is dropped.
     property int request
 
@@ -36,6 +39,12 @@ Singleton {
     function suggest(item: var, confused: var): void {
         if (!configured || !item)
             return;
+        // Asked again for the same word: what was shown is turned down; another word starts
+        // afresh.
+        if (key === item.key && suggestion)
+            turnedDown = [...turnedDown.filter(x => x !== suggestion), suggestion].slice(-5);
+        else if (key !== item.key)
+            turnedDown = [];
         const id = ++request;
         key = item.key;
         suggestion = "";
@@ -51,10 +60,13 @@ Singleton {
             facts.push(`Current memory aid, which didn't work, so write a different one: ${card.aid}`);
         if (confused)
             facts.push(`The learner mixed it up with: ${confused.front} = ${confused.back}. Help tell the two apart.`);
+        if (turnedDown.length)
+            facts.push(`The learner turned these suggestions down. Write a clearly different idea (another derived word or another picture), not a rewording of one of them:\n${turnedDown.map(x => `- ${x}`).join("\n")}`);
         const language = settings.language || "the language of the meaning";
         const body = JSON.stringify({
             model: settings.model,
-            temperature: 0.8,
+            // A little more variety once suggestions were turned down.
+            temperature: turnedDown.length ? 1.0 : 0.8,
             // Room for models that think first; the aid itself is short.
             max_tokens: 2000,
             messages: [
@@ -77,6 +89,7 @@ Singleton {
     function clear(): void {
         request++;
         key = "";
+        turnedDown = [];
         suggestion = "";
         error = "";
         loading = false;
