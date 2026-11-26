@@ -3,8 +3,8 @@ import qs.config
 import qs.services
 
 // Shown while nixpkgs is Config.updates.days or more behind, or an update runs: a snowflake
-// and how many days, or the step running. A click opens the control centre, where the Updates
-// tile is.
+// and how many days, or the step running. A click opens the control centre with the update's
+// details (UpdatesPanel).
 Item {
     id: root
 

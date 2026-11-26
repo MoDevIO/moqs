@@ -10,6 +10,8 @@ Item {
     required property ShellScreen screen
 
     signal clockClicked
+    // The update status, for its details.
+    signal updatesClicked
 
     Workspaces {
         anchors.left: parent.left
@@ -55,7 +57,7 @@ Item {
 
         UpdatesDue {
             anchors.verticalCenter: parent.verticalCenter
-            onClicked: root.clockClicked()
+            onClicked: root.updatesClicked()
         }
 
         NetSpeed {

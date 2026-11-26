@@ -168,7 +168,7 @@ Scope {
                 else if (notifs.centreOpen && !notifs.holdOpen && !near(p, win.width - root.side - notifs.targetWidth, win.width, root.top + notifs.targetHeight))
                     notifs.centreOpen = false;
 
-                if (cc.open && !cc.popupOpen && !near(p, (win.width - cc.targetWidth) / 2, (win.width + cc.targetWidth) / 2, root.top + cc.targetHeight))
+                if (cc.open && !cc.popupOpen && !cc.holdOpen && !near(p, (win.width - cc.targetWidth) / 2, (win.width + cc.targetWidth) / 2, root.top + cc.targetHeight))
                     cc.open = false;
 
                 const r = Config.border.rounding;
@@ -192,7 +192,7 @@ Scope {
                 if (!hovered) {
                     if (!notifs.holdOpen)
                         notifs.centreOpen = false;
-                    if (!cc.popupOpen)
+                    if (!cc.popupOpen && !cc.holdOpen)
                         cc.open = false;
                     if (!music.holdOpen)
                         music.open = false;
@@ -334,6 +334,15 @@ Scope {
                     if (Displays.open)
                         Displays.close();
                     cc.open = !cc.open;
+                }
+                onUpdatesClicked: {
+                    Owly.closeSend();
+                    Launcher.open = false;
+                    Lock.menuOpen = false;
+                    Overview.open = false;
+                    if (Displays.open)
+                        Displays.close();
+                    cc.showUpdates();
                 }
             }
 

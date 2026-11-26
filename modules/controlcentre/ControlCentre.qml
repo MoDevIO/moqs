@@ -13,10 +13,13 @@ Item {
 
     property bool open: false
     // Which list's popover is up: "", "wifi", "bluetooth", "airdrop", "power", "audio",
-    // "visualizer" or "clipboard".
+    // "visualizer", "clipboard" or "updates".
     property string expanded: ""
     // A popover is up; it's its own window, so the pointer leaving for it mustn't close this.
     readonly property bool popupOpen: popover.visible
+    // Opened from elsewhere in the bar (the update status): the pointer isn't over the panel,
+    // so it stays open until the details close, rather than when the pointer moves.
+    property bool holdOpen
 
     // Opens the list named from its chevron, where it was clicked; again closes it.
     // Without a click on the chevron itself, it opens from the chevron's middle.
@@ -29,6 +32,28 @@ Item {
         expanded = name;
         const at = centred ? Qt.point(button.width / 2, button.height / 2) : button.clickPos;
         popover.openAt(button, at.x, at.y);
+    }
+
+    // Opens the panel with the update details up, e.g. from the bar's snowflake. Once the
+    // panel has grown, so the details open from the tile where it ends up.
+    function showUpdates(): void {
+        const wasOpen = open;
+        open = true;
+        holdOpen = true;
+        if (expanded === "updates" && popover.visible)
+            return;
+        if (wasOpen)
+            toggle("updates", updatesTile.expandButton, true);
+        else
+            showUpdatesLater.restart();
+    }
+
+    Timer {
+        id: showUpdatesLater
+
+        interval: 300
+        onTriggered: if (root.open)
+            root.toggle("updates", updatesTile.expandButton, true)
     }
 
     readonly property real targetWidth: open ? Config.controlCentre.width : 0
@@ -48,6 +73,7 @@ Item {
 
     onOpenChanged: {
         if (!open) {
+            holdOpen = false;
             expanded = "";
             popover.close();
         }
@@ -225,48 +251,29 @@ Item {
                     onExpandClicked: root.toggle("capture", expandButton)
                 }
 
-                // The system flake: how far behind, and updating it (asked twice, as it takes a while).
+                // The system flake: how far behind; the details and updating it are behind it.
                 Tile {
                     id: updatesTile
 
-                    property bool confirming
                     property real tick: Date.now()
 
                     Layout.fillWidth: true
                     Layout.preferredWidth: 1
                     visible: Updates.configured
-                    expandable: false
                     checked: Updates.running || Updates.behind >= Config.updates.days
+                    expanded: root.expanded === "updates"
                     icon: "\u{F1105}"
                     title: "Updates"
                     subtitle: {
                         if (Updates.running)
                             return `${Updates.stepName}… ${Math.max(0, Math.floor((tick - Updates.startedAt) / 60000))} min`;
-                        if (confirming)
-                            return "Click again to update";
                         const last = Updates.step === "failed" ? "Last update failed · " : "";
                         if (Updates.behind < 0)
                             return last + (Updates.checkError || "Checking…");
                         return last + (Updates.behind === 0 ? "Up to date" : `nixpkgs ${Updates.behind} day${Updates.behind === 1 ? "" : "s"} behind`);
                     }
-                    onClicked: {
-                        if (Updates.running)
-                            return;
-                        if (!confirming) {
-                            confirming = true;
-                            confirmTimer.restart();
-                            return;
-                        }
-                        confirming = false;
-                        Updates.update();
-                    }
-
-                    Timer {
-                        id: confirmTimer
-
-                        interval: 3000
-                        onTriggered: updatesTile.confirming = false
-                    }
+                    onClicked: root.toggle("updates", expandButton, true)
+                    onExpandClicked: root.toggle("updates", expandButton)
 
                     // Keeps the minutes running.
                     Timer {
@@ -339,11 +346,14 @@ Item {
     Popover {
         id: popover
 
-        onVisibleChanged: if (!visible && !reopening) root.expanded = ""
+        onVisibleChanged: if (!visible && !reopening) {
+            root.expanded = "";
+            root.holdOpen = false;
+        }
 
         Loader {
             width: parent.width
-            sourceComponent: ({ wifi: wifiList, bluetooth: bluetoothList, airdrop: airdropList, power: powerList, workspaces: workspaceStyleList, capture: captureList, visualizer: visualizerSettings, audio: audioList, clipboard: clipboardList })[root.expanded] ?? null
+            sourceComponent: ({ wifi: wifiList, bluetooth: bluetoothList, airdrop: airdropList, power: powerList, workspaces: workspaceStyleList, capture: captureList, visualizer: visualizerSettings, audio: audioList, clipboard: clipboardList, updates: updatesPanel })[root.expanded] ?? null
         }
     }
 
@@ -421,6 +431,12 @@ Item {
         AudioOutputList {
             onPicked: popover.close()
         }
+    }
+
+    Component {
+        id: updatesPanel
+
+        UpdatesPanel {}
     }
 
     Component {

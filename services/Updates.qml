@@ -41,6 +41,17 @@ Singleton {
     property string message
     property real startedAt
     readonly property string stepName: ({ inputs: "Updating inputs", build: "Building", switch: "Switching", done: "Done", failed: "Failed" })[step] ?? ""
+    // From the update's log, for the details: the steps reached in order, the inputs nix
+    // flake update moved ([{ name, from, to }], dates as yyyy-MM-dd, `added` for new ones),
+    // the packages whose version changes ([{ name, from, to, size }], from nix store
+    // diff-closures; "" for one that comes or goes), how many changed only in size, when it
+    // ended (ms), and its last lines of output.
+    property var reached: []
+    property var inputs: []
+    property var changes: []
+    property int resized
+    property real endedAt
+    property var tail: []
     readonly property string logPath: `${Quickshell.env("XDG_RUNTIME_DIR")}/moqs-update.log`
 
     function check(): void {
@@ -57,10 +68,13 @@ Singleton {
             locked = (node.locked.lastModified ?? 0) * 1000;
             const o = node.original;
             branch = o.ref ?? "";
-            // One small request to GitHub for the branch's newest commit, rather than nix
-            // fetching all of nixpkgs whenever it has moved.
-            if (o.type === "github") {
-                latestCheck.command = ["curl", "-sf", "--max-time", "20", `https://api.github.com/repos/${o.owner}/${o.repo}/commits/${o.ref || "HEAD"}`];
+            // The branch's commit feed on GitHub, rather than nix fetching all of nixpkgs
+            // whenever it has moved. Not the API, whose 60 requests an hour without a token
+            // nix needs for its github: inputs. Inputs as github:owner/repo or
+            // git+https://github.com/owner/repo.
+            const repo = o.type === "github" ? `${o.owner}/${o.repo}` : (o.url ?? "").match(/^(?:git\+)?https:\/\/github\.com\/([^\/?#]+\/[^\/?#]+?)(?:\.git)?\/?(?:[?#].*)?$/)?.[1];
+            if (repo) {
+                latestCheck.command = ["curl", "-sf", "--max-time", "20", `https://github.com/${repo}/${o.ref ? `commits/${o.ref}.atom` : "commits.atom"}`];
                 latestCheck.running = true;
             }
         } catch (e) {
@@ -75,37 +89,76 @@ Singleton {
         step = "inputs";
         message = "";
         startedAt = Date.now();
+        endedAt = 0;
+        reached = ["inputs"];
+        inputs = [];
+        changes = [];
+        resized = 0;
+        tail = [];
         Quickshell.execDetached(["systemd-run", "--user", "--unit=moqs-update", "--collect", "--quiet", "sh", "-c", `
 log="$XDG_RUNTIME_DIR/moqs-update.log"
 exec >"$log" 2>&1
 echo "::began $(date +%s)"
-fail() { echo "::failed $1"; notify-send -a Updates -u critical -i dialog-error "Update failed" "$1"; exit 1; }
+fail() { echo "::ended $(date +%s)"; echo "::failed $1"; notify-send -a Updates -u critical -i dialog-error "Update failed" "$1"; exit 1; }
 cd "$1" || fail "Couldn't open $1"
 echo "::inputs"
 nix flake update || fail "nix flake update failed"
 echo "::build"
 out=$(nix build --no-link --print-out-paths ".#nixosConfigurations.$2.config.system.build.toplevel") || fail "The build failed (see $log)"
 if [ "$out" = "$(readlink -f /run/current-system)" ]; then
+    echo "::ended $(date +%s)"
     echo "::done Already up to date"
     notify-send -a Updates -i emblem-default "System up to date" "Nothing changed."
     exit 0
 fi
+echo "::changes"
+nix store diff-closures /run/current-system "$out" 2>/dev/null
 echo "::switch"
 pkexec /run/current-system/sw/bin/systemd-run --collect --pipe --quiet --service-type=exec --unit=moqs-switch sh -c '
 /run/current-system/sw/bin/nix-env -p /nix/var/nix/profiles/system --set "$1" && exec "$1/bin/switch-to-configuration" switch' sh "$out" || fail "Switching was cancelled or failed (see $log)"
+echo "::ended $(date +%s)"
 echo "::done Updated"
 notify-send -a Updates -i emblem-default "System updated" "NixOS $(basename "$out" | sed 's/.*-//')"
 `, "sh", flake, host]);
         logFile.reload();
     }
 
-    // The log's last "::step message" line.
+    // The log: its last "::step message" line, and the details (see inputs).
     function readLog(text: string): void {
-        const lines = text.split("\n").filter(l => l.startsWith("::"));
+        const all = text.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "").split("\n");
+        const lines = all.filter(l => l.startsWith("::"));
         const began = lines.find(l => l.startsWith("::began "));
         if (began)
             startedAt = Number(began.slice(8)) * 1000;
-        const steps = lines.filter(l => l !== began);
+        const ended = lines.find(l => l.startsWith("::ended "));
+        endedAt = ended ? Number(ended.slice(8)) * 1000 : 0;
+        const steps = lines.filter(l => l !== began && l !== ended && l !== "::changes");
+        reached = steps.map(l => l.match(/^::(\w+)/)?.[1] ?? "");
+        // nix flake update: "• Updated input 'nixpkgs':", then the old and the new lock,
+        // each ending in its date: "'github:…' (2026-11-21)".
+        const date = l => (l ?? "").match(/\((\d{4}-\d{2}-\d{2})\)\s*$/)?.[1] ?? "";
+        const ins = [];
+        all.forEach((l, i) => {
+            const m = l.match(/(Updated|Added) input '([^']+)'/);
+            if (m && !m[2].includes("/"))
+                ins.push(m[1] === "Added" ? { name: m[2], added: true, from: "", to: date(all[i + 1]) } : { name: m[2], from: date(all[i + 1]), to: date(all[i + 2]) });
+        });
+        inputs = ins;
+        // nix store diff-closures: "firefox: 145.0 → 146.0, +2048.3 KiB".
+        const at = all.indexOf("::changes");
+        const diff = at < 0 ? [] : all.slice(at + 1, all.findIndex((l, i) => i > at && l.startsWith("::")) >>> 0);
+        const versions = [];
+        let sized = 0;
+        for (const l of diff) {
+            const m = l.match(/^(.+?): (.+?) → (.+?)(?:, (.+))?$/);
+            if (m)
+                versions.push({ name: m[1], from: m[2] === "∅" ? "" : m[2], to: m[3] === "∅" ? "" : m[3], size: m[4] ?? "" });
+            else if (/^.+?: [+-]/.test(l))
+                sized++;
+        }
+        changes = versions;
+        resized = sized;
+        tail = all.filter(l => l.trim() && !l.startsWith("::")).slice(-8);
         const last = steps[steps.length - 1];
         if (!last)
             return;
@@ -166,7 +219,11 @@ notify-send -a Updates -i emblem-default "System updated" "NixOS $(basename "$ou
         stdout: StdioCollector {
             onStreamFinished: {
                 try {
-                    root.latest = Date.parse(JSON.parse(text).commit.committer.date);
+                    // The newest commit is the feed's first entry.
+                    const date = Date.parse(text.match(/<entry>[\s\S]*?<updated>([^<]+)<\/updated>/)[1]);
+                    if (isNaN(date))
+                        throw new Error();
+                    root.latest = date;
                     root.checkError = "";
                 } catch (e) {
                     root.checkError = "Couldn't reach the nixpkgs branch";
