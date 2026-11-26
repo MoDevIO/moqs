@@ -20,7 +20,9 @@ import qs.services
 //   ; vocabulary practice ("+word = translation" adds one, Ctrl+Delete removes)
 //   / recent files                  # nixpkgs, started with nix run (Shift+Enter in a terminal)
 //   @ send a Matrix message: "@room message" (Enter sends; without a message, opens the room)
-//   , open windows by title or app, the last used first (Enter goes to it)
+//   , open windows by title or app, the last used first (Enter goes to it, Shift+Enter
+//     brings it here, Ctrl+Delete closes it)
+// ↑ in the empty field brings back what was run in a mode before, ↓ goes forward again.
 Item {
     id: root
 
@@ -248,6 +250,9 @@ Item {
     function activate(item: var, terminal: bool): void {
         if (!item)
             return;
+        // For ↑ next time; not the hints shown when nothing matches.
+        if (mode !== "apps" && mode !== "vocab" && !item.kind.endsWith("info"))
+            Launcher.remember(query);
         switch (item.kind) {
         case "app":
             Launcher.used(item.app.id);
@@ -304,7 +309,10 @@ Item {
                 HomeAssistant.run(item.cmd);
             break;
         case "win":
-            Overview.focusWindow(item.win.address);
+            if (terminal)
+                bringHere(item.win);
+            else
+                Overview.focusWindow(item.win.address);
             break;
         case "wininfo":
             return;
@@ -322,6 +330,49 @@ Item {
             return;
         }
         root.closed();
+    }
+
+    // Moves a window to the workspace shown and focuses it.
+    function bringHere(win: var): void {
+        const ws = Hyprland.focusedMonitor?.activeWorkspace?.id;
+        if (ws === undefined)
+            return;
+        Hyprland.dispatch(`hl.dsp.window.move({window = "address:0x${win.address}", workspace = ${ws}, follow = true})`);
+        Overview.focusWindow(win.address);
+    }
+
+    // Closes a window as SUPER+C would: focused, closed, then back to the workspace shown.
+    // The launcher stays open, for the next.
+    function closeWindow(win: var): void {
+        const ws = Hyprland.focusedMonitor?.activeWorkspace?.id;
+        Overview.focusWindow(win.address);
+        Hyprland.dispatch("hl.dsp.window.close()");
+        if (ws !== undefined)
+            Overview.focusWorkspace(ws);
+        refreshWindows.restart();
+    }
+
+    Timer {
+        id: refreshWindows
+
+        interval: 300
+        onTriggered: Hyprland.refreshToplevels()
+    }
+
+    // Where ↑ is in Launcher.history: -1 for what's typed.
+    property int historyAt: -1
+    property bool settingHistory
+
+    // Steps through the history: +1 older, -1 newer; past the newest, the field empties.
+    function browseHistory(step: int): void {
+        const at = Math.max(-1, Math.min(Launcher.history.length - 1, historyAt + step));
+        if (at === historyAt)
+            return;
+        historyAt = at;
+        settingHistory = true;
+        search.text = at < 0 ? "" : Launcher.history[at];
+        settingHistory = false;
+        search.cursorPosition = search.text.length;
     }
 
     // The row's main text, and the grey one beside it.
@@ -400,7 +451,8 @@ Item {
         case "win": {
             const ws = item.win.workspace;
             const where = !ws ? "" : ws.name.startsWith("special:") ? `special workspace ${ws.name.slice(8)}` : `workspace ${ws.name}`;
-            return [item.app, where, item.recent === 0 ? "in focus" : ""].filter(x => x).join(" · ");
+            const elsewhere = ws && ws.id !== Hyprland.focusedMonitor?.activeWorkspace?.id;
+            return [item.app, where, item.recent === 0 ? "in focus" : "", elsewhere ? "Shift+Enter brings it here" : ""].filter(x => x).join(" · ");
         }
         case "wininfo":
             return "Type part of a window's title or its app";
@@ -530,11 +582,23 @@ Item {
                     font.pointSize: Config.font.size
                     clip: true
 
-                    onTextChanged: list.currentIndex = 0
+                    onTextChanged: {
+                        list.currentIndex = 0;
+                        if (!root.settingHistory)
+                            root.historyAt = -1;
+                    }
                     Keys.onReturnPressed: event => root.camera ? root.camera = "" : root.activate(root.shown[list.currentIndex], event.modifiers & Qt.ShiftModifier)
                     Keys.onEnterPressed: event => root.camera ? root.camera = "" : root.activate(root.shown[list.currentIndex], event.modifiers & Qt.ShiftModifier)
-                    Keys.onDownPressed: list.incrementCurrentIndex()
-                    Keys.onUpPressed: list.decrementCurrentIndex()
+                    // ↑ in the empty field, and while stepping through it: the history.
+                    Keys.onDownPressed: root.historyAt >= 0 ? root.browseHistory(-1) : list.incrementCurrentIndex()
+                    Keys.onUpPressed: search.text === "" || root.historyAt >= 0 ? root.browseHistory(1) : list.decrementCurrentIndex()
+                    Keys.onDeletePressed: event => {
+                        const item = root.shown[list.currentIndex];
+                        if (event.modifiers & Qt.ControlModifier && item?.kind === "win")
+                            root.closeWindow(item.win);
+                        else
+                            event.accepted = false;
+                    }
                     Keys.onTabPressed: list.incrementCurrentIndex()
                     Keys.onBacktabPressed: list.decrementCurrentIndex()
                     Keys.onEscapePressed: root.camera ? root.camera = "" : root.closed()

@@ -1,9 +1,11 @@
 import QtQuick
 import Quickshell.Services.UPower
 import qs.config
+import qs.services
 
-// Battery level icon; click to show or hide the percentage beside it. Hidden on machines
-// without a laptop battery.
+// Battery level icon; click to show or hide the percentage beside it, with the time left
+// (to empty, or to full while charging). Hidden on machines without a laptop battery. The
+// low battery warnings are BatteryAlerts'.
 Item {
     id: root
 
@@ -56,7 +58,7 @@ Item {
 
             x: 4
             anchors.verticalCenter: parent.verticalCenter
-            text: `${Math.round(root.level * 100)}%`
+            text: `${Math.round(root.level * 100)}%${BatteryAlerts.timeLeft ? ` · ${BatteryAlerts.timeLeft}` : ""}`
             color: root.colour
             opacity: root.showPercentage ? 1 : 0
             font.family: Config.font.sans

@@ -8,7 +8,8 @@ import Quickshell.Io
 // The app launcher, which grows out of the bar on the focused monitor. Opened over IPC:
 //   qs ipc call launcher toggle   (open, close)
 // How often and when each app was started is kept in $XDG_STATE_HOME/moqs/launcher.json, so
-// the ones used most rank first. Recent files come from the list GTK apps share,
+// the ones used most rank first; what was run in the other modes ("=…", ">…", "!…") in
+// launcher-history.json, for ↑ in the empty field. Recent files come from the list GTK apps share,
 // ~/.local/share/recently-used.xbel. "#" searches nixpkgs, from an index of `nix search
 // nixpkgs ^` kept in $XDG_CACHE_HOME/moqs/nixpkgs.json and rebuilt when it's three days old.
 Singleton {
@@ -64,6 +65,18 @@ Singleton {
         u[id] = { count: (u[id]?.count ?? 0) + 1, last: Date.now() };
         usage = u;
         usageFile.setText(JSON.stringify(u) + "\n");
+    }
+
+    // Queries run in a mode, newest first, each once; at most 100.
+    property var history: []
+    readonly property string historyPath: `${stateDir}/launcher-history.json`
+
+    function remember(query: string): void {
+        query = query.trim();
+        if (query.length < 2)
+            return;
+        history = [query, ...history.filter(q => q !== query)].slice(0, 100);
+        historyFile.setText(JSON.stringify(history) + "\n");
     }
 
     // A calculator for "=…": numbers (with . or , as the decimal point), + - * / % ^,
@@ -479,6 +492,21 @@ case "$err" in *unfree*) err=$(NIXPKGS_ALLOW_UNFREE=1 nix run --impure "nixpkgs#
         printErrors: false
         onFileChanged: reload()
         onLoaded: root.parseRecent(text())
+    }
+
+    FileView {
+        id: historyFile
+
+        path: root.historyPath
+        printErrors: false
+        onLoaded: {
+            try {
+                const h = JSON.parse(text());
+                root.history = Array.isArray(h) ? h.filter(q => typeof q === "string") : [];
+            } catch (e) {
+                root.history = [];
+            }
+        }
     }
 
     FileView {
