@@ -14,24 +14,20 @@ import qs.config
 // A word is asked as written (word -> translation), or also the other way round; due and new
 // words come in the list's order, or at random.
 //
-// When a word is due comes from FSRS (the scheduler Anki uses): each word has a stability (the
-// days until the chance of remembering it falls to 90 %) and a difficulty, which every answer
-// updates; it's asked again when that chance falls to Config.vocab.retention. A wrong answer
-// (or none) counts as Again and brings the word back after Config.vocab.relearn minutes. A
-// right one counts as Good, or as Hard when it took long to recall: the time until the first
-// key is slower than three quarters of the last right answers (Config.vocab.slow seconds
-// until there are a few).
-//
-// A word missed today isn't learnt by one right answer, often just after its answer was
-// shown: missed n times, it has to be right min(n, steps + 1) times in a row, the
-// Config.vocab.steps minutes apart, and then comes back tomorrow, never later. A miss on the
-// way starts the count again.
+// Scheduling is Anki's with FSRS on (FSRS-6, fsrs-rs 6.6.2, its default weights): each word
+// has a stability (the days until the chance of remembering it falls to 90 %) and a
+// difficulty, which every answer updates, and a state: new, learning, review or relearning.
+// New words go through Config.vocab.learnSteps (1 and 10 minutes), forgotten ones through
+// Config.vocab.relearnSteps (10 minutes), with Anki's rules for Again, Hard, Good and Easy in
+// them; then a word is reviewed when the chance falls to Config.vocab.retention, its interval
+// spread a little by Anki's fuzz. A wrong typed answer (or none) counts as Again; after a
+// right one the learner rates it Hard, Good or Easy, as in Anki (see VocabSession).
 //
 // A day starts at Config.vocab.dayStart (4 am), as in Anki: answers after midnight count for
 // the day before, and words come due at the start of a day, not 24 hours after the answer.
 //
-// A word missed Config.vocab.leech times (not counting the first try of a new word) is a hard
-// word: it's marked while asked, the pane offers to keep a mnemonic with it, and the stats
+// A word forgotten in reviews Config.vocab.leech times (Anki's leech) is a hard word: it's
+// marked while asked, the pane offers to keep a mnemonic with it, and the stats
 // list it, until it's right on Config.vocab.leechCleared reviews in a row. A mnemonic sits
 // in the word's line after the note as " # mnemonic: …" (see Mnemonic for suggested ones;
 // " # aid: …", the older form, still counts).
@@ -62,10 +58,11 @@ Singleton {
     // [{ front, back, hint, mnemonic, section, line }], line being its index in vocab.txt, section
     // the comment heading it, hint its note (e.g. grammar) and mnemonic its mnemonic.
     property var cards: []
-    // Card key -> { due, last (ms), s (stability, days), d (difficulty, 1..10), reps, lapses,
-    // misses (answers missed, the first of a new word aside), streak (reviews right in a row),
-    // learning (in a step minutes after a mistake), missDay and missesToday (misses on the day
-    // missDay), stepRight (right answers in a row since the last miss that day) }.
+    // Card key -> { due, last (ms), s (stability, days), d (difficulty, 1..10), state (learning,
+    // review or relearning), remaining (steps left, in learning or relearning), reps, lapses
+    // (forgotten in reviews), leech, misses (answers missed, the first of a new word aside),
+    // streak (reviews right in a row) }. Entries from before states were kept have learning,
+    // missDay, missesToday and stepRight instead, until they're next answered.
     property var sched: ({})
     // New words first asked today, and the day it counts for.
     property string newDay
@@ -154,7 +151,7 @@ Singleton {
                 sec.learnt++;
             }
             if (isHard(e))
-                out.hard.push({ prompt: i.prompt, answer: i.answer, misses: missesOf(e) });
+                out.hard.push({ prompt: i.prompt, answer: i.answer, lapses: e.lapses ?? 0 });
             const d = Math.max(0, daysBetween(now, e.due));
             if (d < 7)
                 out.forecast[d]++;
@@ -167,7 +164,7 @@ Singleton {
         }
         if (answers)
             out.recall = right / answers;
-        out.hard.sort((a, b) => b.misses - a.misses);
+        out.hard.sort((a, b) => b.lapses - a.lapses);
         // Today counts once something's answered; until then the streak runs to yesterday.
         for (let n = history[date(0)]?.n ? 0 : 1; history[date(n)]?.n; n++)
             out.streak++;
@@ -180,11 +177,13 @@ Singleton {
         return e ? e.misses ?? Math.max(0, (e.lapses ?? 0) - 1) : 0;
     }
 
+    // A leech, as Anki calls it: forgotten in reviews Config.vocab.leech times. Right on
+    // Config.vocab.leechCleared reviews in a row, it's no longer marked.
     function isHard(e: var): bool {
-        return missesOf(e) >= Config.vocab.leech && (e.streak ?? 0) < Config.vocab.leechCleared;
+        return !!e && (e.leech || (e.lapses ?? 0) >= Config.vocab.leech) && (e.streak ?? 0) < Config.vocab.leechCleared;
     }
 
-    // An item's misses (see items).
+    // An item's misses (see items): answers missed, the first of a new word aside.
     function misses(item: var): int {
         version;
         return item ? missesOf(sched[item.key]) : 0;
@@ -226,9 +225,11 @@ Singleton {
         return dayKey(Date.now());
     }
 
-    // An entry in a step minutes after a mistake, rather than waiting days for review.
-    // Entries from before this was kept say it by their short wait.
+    // An entry in learning or relearning steps (minutes), rather than waiting days for
+    // review. Entries from before states were kept say it by their flag or short wait.
     function learning(e: var): bool {
+        if (e.state)
+            return e.state !== "review";
         return e.learning ?? e.due - e.last < day / 2;
     }
 
@@ -236,10 +237,10 @@ Singleton {
         return list[Math.floor(Math.random() * list.length)];
     }
 
-    // The next word to ask: due ones first, then new ones (so many a day). For the lock,
-    // which always needs one, any other word when none is due. Never the word of `exclude`
-    // (a key), either way round, if there's another, nor those in `skip` (keys), which a
-    // session asks again itself.
+    // The next word to ask: due ones first, then new ones (so many a day), then, as Anki
+    // learns ahead, one in learning steps due within Config.vocab.learnAhead minutes. For
+    // the lock, which always needs one, any other word when none is due. Never the word of
+    // `exclude` (a key), either way round, if there's another, nor those in `skip` (keys).
     function pick(gate: bool, exclude: string, skip: var): var {
         now = Date.now();
         const word = exclude.slice(0, -1);
@@ -252,6 +253,11 @@ Singleton {
             if (fresh.length)
                 return random ? any(fresh) : fresh[0];
         }
+        const ahead = items.filter(i => sched[i.key] && learning(sched[i.key]) && sched[i.key].due <= now + Config.vocab.learnAhead * 60000 && !(skip ?? []).includes(i.key)).sort((a, b) => sched[a.key].due - sched[b.key].due);
+        // The word just answered only when it's the only one, as Anki shows it again.
+        const soon = ahead.find(i => !exclude || i.key.slice(0, -1) !== word) ?? ahead[0];
+        if (soon)
+            return soon;
         if (!gate)
             return null;
         if (!all.length)
@@ -374,62 +380,215 @@ Singleton {
         Quickshell.execDetached(["sh", "-c", 'printf "%s\\n" "$1" >> "$2"', "sh", JSON.stringify(record), logPath]);
     }
 
-    // The grade of a right answer from how long recalling it took (seconds until the first
-    // key): Hard (2) if slower than three quarters of the last ones, else Good (3). Remembers
-    // the time, capped so a walk away doesn't skew the rest, unless `repeat` (a word asked
-    // again moments after its answer was shown, which is quick and would make others Hard).
-    function speedGrade(secs: real, repeat: bool): int {
-        const sorted = times.slice().sort((a, b) => a - b);
-        const slow = sorted.length >= 10 ? sorted[Math.floor(sorted.length * 0.75)] : Config.vocab.slow;
-        if (!repeat)
-            times = [...times, Math.round(Math.min(secs, 60) * 10) / 10].slice(-100);
-        return secs > slow ? 2 : 3;
-    }
+    // ---- FSRS-6, as in Anki (fsrs-rs 6.6.2), with its default weights
 
-    // ---- FSRS-5, with its default weights
-
-    readonly property var w: [0.40255, 1.18385, 3.173, 15.69105, 7.1949, 0.5345, 1.4604, 0.0046, 1.54575, 0.1192, 1.01925, 1.9395, 0.11, 0.29605, 2.2698, 0.2315, 2.9898, 0.51655, 0.6621]
-    readonly property real decay: -0.5
-    readonly property real factor: 19 / 81
+    readonly property var w: [0.212, 1.2931, 2.3065, 8.2956, 6.4133, 0.8334, 3.0194, 0.001, 1.8722, 0.1666, 0.796, 1.4835, 0.0614, 0.2629, 1.6483, 0.6014, 1.8729, 0.5425, 0.0912, 0.0658, 0.1542]
+    readonly property real decay: -w[20]
+    readonly property real factor: Math.pow(0.9, 1 / decay) - 1
+    readonly property real sMin: 0.001
+    readonly property real sMax: 36500
 
     // The chance of remembering a word of stability s after `days`.
     function recall(days: real, s: real): real {
-        return Math.pow(1 + factor * days / s, decay);
+        return Math.pow(1 + factor * Math.max(0, days) / Math.max(s, sMin), decay);
     }
 
-    // Days until that chance falls to the retention aimed for; a little random beyond a few
-    // days, so words learnt together don't stay together.
-    function interval(s: real): int {
-        let days = s / factor * (Math.pow(Config.vocab.retention, 1 / decay) - 1);
-        if (days >= 3)
-            days *= 0.95 + Math.random() * 0.1;
-        return Math.max(1, Math.min(Config.vocab.maxInterval, Math.round(days)));
+    // Days (fractional) until that chance falls to the retention aimed for.
+    function stabilityDays(s: real): real {
+        return Math.max(0, Math.min(sMax, Math.max(s, sMin) / factor * (Math.pow(Config.vocab.retention, 1 / decay) - 1)));
     }
 
     function clampD(d: real): real {
         return Math.max(1, Math.min(10, d));
     }
 
-    function firstD(g: int): real {
-        return clampD(w[4] - Math.exp(w[5] * (g - 1)) + 1);
+    function clampS(s: real): real {
+        return Math.max(sMin, Math.min(sMax, s));
+    }
+
+    // Unclamped, as the mean reversion uses it.
+    function initD(g: int): real {
+        return w[4] - Math.exp(w[5] * (g - 1)) + 1;
     }
 
     function nextD(d: real, g: int): real {
-        const moved = d - w[6] * (g - 3) * (10 - d) / 9;
-        return clampD(w[7] * firstD(4) + (1 - w[7]) * moved);
+        const moved = d + (10 - d) / 9 * (-w[6] * (g - 3));
+        return clampD(w[7] * initD(4) + (1 - w[7]) * moved);
     }
 
     function rememberedS(d: real, s: real, r: real, g: int): real {
-        return s * (1 + Math.exp(w[8]) * (11 - d) * Math.pow(s, -w[9]) * (Math.exp(w[10] * (1 - r)) - 1) * (g === 2 ? w[15] : 1) * (g === 4 ? w[16] : 1));
+        return clampS(s * (Math.exp(w[8]) * (11 - d) * Math.pow(s, -w[9]) * (Math.exp((1 - r) * w[10]) - 1) * (g === 2 ? w[15] : 1) * (g === 4 ? w[16] : 1) + 1));
     }
 
     function forgottenS(d: real, s: real, r: real): real {
-        return Math.min(s, w[11] * Math.pow(d, -w[12]) * (Math.pow(s + 1, w[13]) - 1) * Math.exp(w[14] * (1 - r)));
+        const s2 = w[11] * Math.pow(d, -w[12]) * (Math.pow(s + 1, w[13]) - 1) * Math.exp((1 - r) * w[14]);
+        return clampS(Math.min(s2, s / Math.exp(w[17] * w[18])));
     }
 
-    // Again the same day, e.g. typed right after being shown it.
+    // Again the same day (no whole day since the last answer).
     function sameDayS(s: real, g: int): real {
-        return s * Math.exp(w[17] * (g - 3 + w[18]));
+        const inc = Math.exp(w[17] * (g - 3 + w[18])) * Math.pow(s, -w[19]);
+        return clampS(s * (g >= 3 ? Math.max(inc, 1) : inc));
+    }
+
+    // The memory state after grade g at the time t (ms): { s, d }.
+    function memory(old: var, g: int, t: real): var {
+        if (!old || old.s === undefined)
+            return { s: clampS(w[g - 1]), d: clampD(initD(g)) };
+        const days = daysBetween(old.last, t);
+        // Asked before it's due (the lock or a game asks one when none is), the same day:
+        // the elapsed part of a day, as a review ahead of time counts it, so unlocking often
+        // doesn't make a word more stable each time.
+        const early = g > 1 && !learning(old) && t < old.due && days === 0;
+        let s;
+        if (early)
+            s = rememberedS(old.d, old.s, recall((t - old.last) / day, old.s), g);
+        else if (days === 0)
+            s = sameDayS(old.s, g);
+        else if (g === 1)
+            s = forgottenS(old.d, old.s, recall(days, old.s));
+        else
+            s = rememberedS(old.d, old.s, recall(days, old.s), g);
+        return { s, d: nextD(old.d, g) };
+    }
+
+    // ---- Anki's card states and intervals
+
+    // Anki's fuzz: intervals of 2.5 days or more spread a little, so words learnt together
+    // don't stay together. `f` in 0..1 picks from the range.
+    function fuzzed(ivl: real, min: int, max: int, f: real): int {
+        min = Math.min(min, max);
+        if (ivl < 2.5)
+            return Math.max(min, Math.min(max, Math.round(ivl)));
+        let delta = 1;
+        for (const [start, end, k] of [[2.5, 7, 0.15], [7, 20, 0.1], [20, Infinity, 0.05]])
+            delta += k * Math.max(0, Math.min(ivl, end) - start);
+        ivl = Math.max(min, Math.min(max, ivl));
+        let lower = Math.max(min, Math.min(max, Math.round(ivl - delta)));
+        let upper = Math.max(min, Math.min(max, Math.round(ivl + delta)));
+        if (upper === lower && upper > 2 && upper < max)
+            upper = lower + 1;
+        return Math.floor(lower + f * (1 + upper - lower));
+    }
+
+    // A fuzz factor fixed for a word's review, so the intervals shown on the buttons are
+    // the ones given.
+    function fuzzFactor(key: string, reps: int): real {
+        let h = 2166136261;
+        for (const ch of `${key}\u0001${reps}`)
+            h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+        return ((h >>> 0) % 100000) / 100000;
+    }
+
+    // Seconds of a learning step's delay, as Anki's steps: Again the first step, Hard the
+    // current one (on the first: the mean of the first two, or half as long again with one
+    // step), Good the next one (none: it graduates).
+    function stepIndex(steps: var, remaining: int): int {
+        return Math.min(Math.max(0, steps.length - remaining), steps.length - 1);
+    }
+
+    function hardDelay(steps: var, remaining: int): int {
+        const i = stepIndex(steps, remaining);
+        const cur = steps[i] * 60;
+        if (i > 0)
+            return cur;
+        return steps.length > 1 ? (cur + steps[1] * 60) / 2 : Math.min(cur * 1.5, cur + 86400);
+    }
+
+    // An entry's state, also for entries from before it was kept.
+    function stateOf(e: var): string {
+        if (!e)
+            return "new";
+        if (e.state)
+            return e.state;
+        return learning(e) ? ((e.lapses ?? 0) > 0 || (e.reps ?? 0) > 1 ? "relearning" : "learning") : "review";
+    }
+
+    // What grading an item g (1 Again, 2 Hard, 3 Good, 4 Easy) would make of its entry:
+    // { entry, minutes (when it comes back within the day) or days }.
+    function next(item: var, g: int): var {
+        const t = Date.now();
+        const old = upgrade(sched[item.key]);
+        const state = stateOf(old);
+        const mem = memory(old, g, t);
+        const learnSteps = Config.vocab.learnSteps, relearnSteps = Config.vocab.relearnSteps;
+        const max = Config.vocab.maxInterval;
+        const f = fuzzFactor(item.key, old?.reps ?? 0);
+        // Graduating or reviewing: days from the stability, Hard < Good < Easy.
+        const reviewDays = () => {
+            const ivl = k => stabilityDays(k === g ? mem.s : memory(old, k, t).s);
+            const hard = fuzzed(ivl(2), 1, max, f);
+            const good = fuzzed(ivl(3), state === "review" ? hard + 1 : 1, max, f);
+            if (g === 2)
+                return hard;
+            if (g === 3)
+                return good;
+            return fuzzed(ivl(4), good + 1, max, f);
+        };
+        let next = state === "new" ? "learning" : state;
+        let remaining = old?.remaining ?? (state === "relearning" ? relearnSteps.length : learnSteps.length);
+        let secs = 0, days = 0;
+        if (state === "review") {
+            if (g === 1 && relearnSteps.length) {
+                next = "relearning";
+                remaining = relearnSteps.length;
+                secs = relearnSteps[0] * 60;
+            } else {
+                days = g === 1 ? fuzzed(stabilityDays(mem.s), 1, max, f) : reviewDays();
+            }
+        } else {
+            // In steps: new words in Anki's learning steps, forgotten ones in its relearning steps.
+            const steps = next === "relearning" ? relearnSteps : learnSteps;
+            if (state === "new")
+                remaining = steps.length;
+            if (g === 1 && steps.length) {
+                remaining = steps.length;
+                secs = steps[0] * 60;
+            } else if (g === 2 && steps.length) {
+                secs = hardDelay(steps, remaining);
+            } else if (g === 3 && steps.length && stepIndex(steps, remaining) + 1 < steps.length) {
+                const i = stepIndex(steps, remaining) + 1;
+                secs = steps[i] * 60;
+                remaining = steps.length - i;
+            } else {
+                next = "review";
+                days = g === 4 ? reviewDays() : fuzzed(Math.max(1, Math.round(stabilityDays(mem.s))), 1, max, f);
+            }
+        }
+        // A step longer than a day is whole days, as in Anki.
+        if (secs > 86400) {
+            days = Math.round(secs / 86400);
+            secs = 0;
+        }
+        const lapse = g === 1 && state === "review";
+        const entry = {
+            due: secs ? t + secs * 1000 : dayAfter(t, days),
+            last: t,
+            s: Math.round(mem.s * 10000) / 10000,
+            d: Math.round(mem.d * 10000) / 10000,
+            state: next,
+            remaining: next === "review" ? undefined : remaining,
+            reps: (old?.reps ?? 0) + 1,
+            lapses: (old?.lapses ?? 0) + (lapse ? 1 : 0),
+            misses: missesOf(old) + (g === 1 && old ? 1 : 0),
+            streak: g === 1 ? 0 : (old?.streak ?? 0) + (state === "review" ? 1 : 0),
+            // Anki's leech: forgotten leech times, then every half as many again (8, 12, 16).
+            leech: lapse && isLeechLapse((old?.lapses ?? 0) + 1) ? true : old?.leech
+        };
+        return { entry, minutes: secs ? Math.max(1, Math.round(secs / 60)) : 0, days: secs ? 0 : days };
+    }
+
+    function isLeechLapse(lapses: int): bool {
+        const t = Config.vocab.leech;
+        return t > 0 && lapses >= t && (lapses - t) % Math.max(Math.ceil(t / 2), 1) === 0;
+    }
+
+    // "10 min", "3 d", "2 mo", as Anki shows intervals on its buttons.
+    function span(n: var): string {
+        if (n.minutes)
+            return n.minutes < 60 ? `${n.minutes} min` : `${Math.round(n.minutes / 60)} h`;
+        const d = n.days;
+        return d < 30 ? `${d} d` : d < 365 ? `${Math.round(d / 30 * 10) / 10} mo` : `${Math.round(d / 365 * 10) / 10} y`;
     }
 
     // Entries from before FSRS: { due, ivl, ease, reps, lapses }.
@@ -437,7 +596,7 @@ Singleton {
         if (!old || old.s)
             return old;
         const ivl = old.ivl ?? 0;
-        return { due: old.due, last: ivl > 0 ? old.due - ivl * day : old.due - Config.vocab.relearn * 60000, s: ivl > 0 ? ivl : w[0], d: old.lapses ? 6 : 5, reps: old.reps ?? 0, lapses: old.lapses ?? 0 };
+        return { due: old.due, last: ivl > 0 ? old.due - ivl * day : old.due - 10 * 60000, s: ivl > 0 ? ivl : w[0], d: old.lapses ? 6 : 5, reps: old.reps ?? 0, lapses: old.lapses ?? 0 };
     }
 
     // What grading an item changes, to take a grade back (see restore()).
@@ -458,67 +617,24 @@ Singleton {
         save.restart();
     }
 
-    // Schedules a word after an answer graded 1 (Again), 2 (Hard) or 3 (Good). Returns the
-    // days until it's asked again, 0 for minutes.
-    function grade(item: var, g: int): int {
-        now = Date.now();
+    // Schedules a word after grade g (1 Again, 2 Hard, 3 Good, 4 Easy), as Anki would.
+    // Returns what next() said.
+    function grade(item: var, g: int): var {
+        const n = next(item, g);
+        now = n.entry.last;
         lastAnswer = now;
-        const old = upgrade(sched[item.key]);
-        let s, d;
-        // A review, not a step minutes after a mistake.
-        const review = old && !learning(old);
-        if (!old) {
+        if (!sched[item.key]) {
             if (newDay !== today()) {
                 newDay = today();
                 newToday = 0;
             }
             newToday++;
-            s = w[g - 1];
-            d = firstD(g);
-        } else {
-            // Days since the last answer: whole days, as Anki counts them, or the part of
-            // one on the same day.
-            const sameDay = dayKey(old.last) === dayKey(now);
-            const days = sameDay ? (now - old.last) / day : daysBetween(old.last, now);
-            // Right before it's due (the lock or a game asks one when none is): the long-term
-            // formula, which barely changes a word just answered, where the same-day one would
-            // make it ~40 % more stable on every unlock.
-            const early = g > 1 && review && now < old.due;
-            if (sameDay && !early)
-                s = sameDayS(old.s, g);
-            else if (g === 1)
-                s = forgottenS(old.d, old.s, recall(days, old.s));
-            else
-                s = rememberedS(old.d, old.s, recall(days, old.s), g);
-            d = nextD(old.d, g);
         }
-        s = Math.max(0.01, s);
-        // Missed today: right answers in a row needed, minutes apart, then tomorrow.
-        const day0 = today();
-        const missesToday = (old?.missDay === day0 ? old.missesToday ?? 0 : 0) + (g === 1 ? 1 : 0);
-        const stepRight = g === 1 || !missesToday ? 0 : (old?.missDay === day0 ? old.stepRight ?? 0 : 0) + 1;
-        const steps = Config.vocab.steps;
-        const stepping = g > 1 && missesToday > 0 && stepRight < Math.min(missesToday, steps.length + 1);
-        const ivl = g === 1 || stepping ? 0 : missesToday ? 1 : interval(s);
-        sched[item.key] = {
-            due: g === 1 ? now + Config.vocab.relearn * 60000 : stepping ? now + steps[Math.min(stepRight, steps.length) - 1] * 60000 : dayAfter(now, ivl),
-            last: now,
-            s: Math.round(s * 1000) / 1000,
-            d: Math.round(d * 1000) / 1000,
-            reps: (old?.reps ?? 0) + 1,
-            // Forgotten on review: not new words nor mistakes again in the same session.
-            lapses: (old?.lapses ?? 0) + (g === 1 && review ? 1 : 0),
-            misses: missesOf(old) + (g === 1 && old ? 1 : 0),
-            streak: g === 1 ? 0 : (old?.streak ?? 0) + (review ? 1 : 0),
-            learning: g === 1 || stepping,
-            missDay: missesToday ? day0 : undefined,
-            missesToday: missesToday || undefined,
-            stepRight: missesToday ? stepRight : undefined
-        };
+        sched[item.key] = n.entry;
         const h = Object.assign({ n: 0, r: 0, w: 0 }, history[today()]);
         h.n++;
         h.r += g > 1 ? 1 : 0;
-        h.w += old ? 0 : 1;
+        h.w += n.entry.reps === 1 ? 1 : 0;
         const days = Object.assign({}, history, { [today()]: h });
         const kept = {};
         for (const k of Object.keys(days).sort().slice(-90))
@@ -526,7 +642,7 @@ Singleton {
         history = kept;
         version++;
         save.restart();
-        return ivl;
+        return n;
     }
 
     // ---- Settings and words
@@ -793,7 +909,7 @@ Singleton {
 
         // The hard words, most missed first, one per line.
         function hardWords(): string {
-            return root.stats.hard.map(h => `${h.prompt} = ${h.answer} (missed ${h.misses}×)`).join("\n") || "no hard words";
+            return root.stats.hard.map(h => `${h.prompt} = ${h.answer} (forgotten ${h.lapses}×)`).join("\n") || "no hard words";
         }
 
         function stats(): string {

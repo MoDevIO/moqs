@@ -183,6 +183,13 @@ in
       example = "German";
       description = "Language the mnemonics are written in. Empty: the translations' language.";
     };
+
+    prepareModel = mkOption {
+      type = types.str;
+      default = "";
+      example = "mistral-large-4-1t-a52b";
+      description = "Model for the suggestions prepared ahead in the background for words missed often, where speed doesn't matter. Empty: `model`.";
+    };
   };
 
   navidrome = login {

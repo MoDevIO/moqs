@@ -161,28 +161,25 @@ Singleton {
     }
 
     readonly property QtObject vocab: QtObject {
-        // New words a day, minutes until a wrong one is asked again, and seconds the lock's
-        // word step waits before offering an emergency unlock.
+        // New words a day, and seconds the lock's word step waits before offering an
+        // emergency unlock.
         readonly property int newPerDay: 20
-        readonly property int relearn: 10
-        // A word missed n times today has to be right min(n, steps + 1) times in a row before
-        // it waits for tomorrow, these many minutes apart.
-        readonly property var steps: [10, 30]
-        // Seconds before a missed word is asked again when no other word is left to put in
-        // between; that time it's practice and doesn't count.
-        readonly property int retryGap: 60
         readonly property int emergency: 60
-        // FSRS: the chance of still remembering a word when it's asked again, and the most
-        // days between two asks.
+        // As Anki's defaults: learning steps for new words and relearning steps for forgotten
+        // ones (minutes), how far ahead words in those steps are asked when nothing else is
+        // left (minutes), the chance of still remembering a word when it's reviewed, and the
+        // most days between two reviews.
+        readonly property var learnSteps: [1, 10]
+        readonly property var relearnSteps: [10]
+        readonly property int learnAhead: 20
         readonly property real retention: 0.9
-        readonly property int maxInterval: 365
-        // Seconds to the first key above which a right answer counts as Hard, until there
-        // are ten right answers to compare with.
-        readonly property real slow: 6
-        // Misses after which a word is flagged as hard (the first try of a new word doesn't
-        // count); right answers on this many reviews in a row clear the flag.
-        readonly property int leech: 4
+        readonly property int maxInterval: 36500
+        // Forgotten in reviews this many times, a word is a leech, as Anki calls it, marked
+        // as hard; right on this many reviews in a row clears the mark.
+        readonly property int leech: 8
         readonly property int leechCleared: 3
+        // Misses after which a word's mnemonic suggestions are prepared ahead (Mnemonic).
+        readonly property int prepareMisses: 2
         // The hour a new day starts, for new words a day and when words come due.
         readonly property int dayStart: 4
         // Hours between notifications about words due for review; 0 turns them off.

@@ -11,6 +11,8 @@ settings.json
 
 # mpv-mpris for the music player, linked in by the Home Manager module or `nix build .#mpv-mpris -o mpv-mpris`
 mpv-mpris
+# German words for the vocabulary's sound-alikes: `nix build .#german-words -o german-words.txt`
+german-words.txt
 
 result
 result-*

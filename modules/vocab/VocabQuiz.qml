@@ -5,13 +5,14 @@ import qs.config
 import qs.services
 
 // A vocabulary card for a VocabSession: the word, a field for the translation, and after a
-// wrong answer the right one, to be typed out, with the word it was mixed up with. Once
-// answered, the word's note and mnemonic show. In the launcher (manage) it also takes
+// wrong answer the right one, to be typed out, with the word it was mixed up with; after a
+// right one, Hard, Good and Easy to rate it, as in Anki (1, 2 or 3; Enter is Good), each
+// with when it would come back. Once answered, the word's note and mnemonic show. In the launcher (manage) it also takes
 // "+word = translation" to add a word, "# mnemonic" to set the one shown's mnemonic, Ctrl+Delete
 // to remove it, "I got it right" (or Ctrl+Enter) to count an answer judged wrong as right, and
 // shows what's due and the settings (a click switches them), and the stats in place of the
-// card. With Mnemonic set up, it suggests mnemonics: for hard words by itself, for others
-// on a click; Tab keeps one.
+// card. With Mnemonic set up, it suggests mnemonics once answered, on a click or Tab; a
+// click or 1–4 keeps one (Alt+1–4 while rating, where the numbers rate).
 ColumnLayout {
     id: root
 
@@ -23,7 +24,7 @@ ColumnLayout {
     readonly property bool hard: Vocab.hard(item)
     // A mnemonic suggested for the word shown, or being thought of.
     readonly property bool mnemonicHere: item !== null && Mnemonic.key === item.key
-    readonly property bool suggested: mnemonicHere && Mnemonic.suggestion !== ""
+    readonly property bool suggested: mnemonicHere && Mnemonic.suggestions.length > 0
     property string added
     // The stats show in place of the card.
     property bool showStats
@@ -55,15 +56,17 @@ ColumnLayout {
         if (!item || !Mnemonic.configured)
             return;
         Mnemonic.suggest(item, session.confused);
-        session.pause();
     }
 
-    // Keeps the suggested mnemonic with the word.
-    function keepMnemonic(): void {
-        if (!suggested)
+    // Keeps the suggested mnemonic at `index` with the word.
+    function keepMnemonic(index: int): void {
+        const text = suggested ? Mnemonic.suggestions[index] : undefined;
+        if (!text)
             return;
         const key = item.key;
-        if (Vocab.setMnemonic(item.card, Mnemonic.suggestion)) {
+        const card = item.card;
+        if (Vocab.setMnemonic(card, text)) {
+            Mnemonic.kept(card, text, false);
             added = "Mnemonic kept";
             Mnemonic.clear();
             // The word again, with its mnemonic.
@@ -71,11 +74,10 @@ ColumnLayout {
         }
     }
 
+    // Suggestions are only asked for on request (the button or Tab), once answered.
+    readonly property bool canSuggest: manage && item !== null && phase !== "ask" && Mnemonic.configured && !Mnemonic.loading
     onItemChanged: if (Mnemonic.key && Mnemonic.key !== item?.key)
         Mnemonic.clear()
-    // A hard word answered, without a mnemonic yet: one is suggested by itself.
-    onPhaseChanged: if (manage && phase !== "ask" && hard && !item?.card.mnemonic && Mnemonic.configured && !mnemonicHere)
-        suggestMnemonic()
 
     function enter(event: var): void {
         if (event.modifiers & Qt.ControlModifier && manage && session.canOverrule) {
@@ -103,7 +105,9 @@ ColumnLayout {
         // A mnemonic of one's own for the word shown.
         if (manage && t.startsWith("#") && item) {
             const key = item.key;
-            if (Vocab.setMnemonic(item.card, t.slice(1))) {
+            const card = item.card;
+            if (Vocab.setMnemonic(card, t.slice(1))) {
+                Mnemonic.kept(card, t.slice(1).trim(), true);
                 added = t.slice(1).trim() ? "Mnemonic saved" : "Mnemonic removed";
                 Mnemonic.clear();
                 input.text = "";
@@ -161,7 +165,7 @@ ColumnLayout {
 
             Text {
                 Layout.fillWidth: true
-                text: !root.item ? "Vocabulary" : `${root.session.practice ? "Final round, missed before" : root.session.retrying ? "Once more, for practice" : root.item.dir === ">" ? "Translate" : "Translate back"}${root.hard ? ` · hard word, missed ${Vocab.misses(root.item)}×` : ""}`
+                text: !root.item ? "Vocabulary" : `${root.item.dir === ">" ? "Translate" : "Translate back"}${root.hard ? ` · hard word, forgotten ${Vocab.sched[root.item.key]?.lapses ?? 0}×` : ""}`
                 color: root.hard ? Config.colours.red : Config.colours.subtext
                 font.family: Config.font.family
                 font.pointSize: Config.font.small
@@ -182,7 +186,7 @@ ColumnLayout {
             Layout.topMargin: 6
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.Wrap
-            text: root.item ? root.item.prompt : root.session.waitUntil ? `Once more in ${Math.max(1, Math.ceil((root.session.waitUntil - root.session.clock) / 1000))} s` : Vocab.cards.length ? "All caught up" : "No words yet"
+            text: root.item ? root.item.prompt : Vocab.cards.length ? "All caught up" : "No words yet"
             color: root.item ? Config.colours.text : Config.colours.subtext
             font.family: Config.font.sans
             font.pointSize: root.item ? 22 : Config.font.size + 2
@@ -194,7 +198,7 @@ ColumnLayout {
             visible: !root.item
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.Wrap
-            text: root.session.waitUntil ? "The word you just missed comes back after a pause, so you recall it instead of copying it" : Vocab.cards.length ? (Vocab.nextDue ? `The next word is due ${root.when(Vocab.nextDue)}` : "") : `Type +word = translation below, or add lines like that to ${Vocab.wordsPath.replace(Quickshell.env("HOME"), "~")}`
+            text: Vocab.cards.length ? (Vocab.nextDue ? `The next word is due ${root.when(Vocab.nextDue)}` : "") : `Type +word = translation below, or add lines like that to ${Vocab.wordsPath.replace(Quickshell.env("HOME"), "~")}`
             color: Config.colours.subtext
             font.family: Config.font.family
             font.pointSize: Config.font.small
@@ -204,7 +208,7 @@ ColumnLayout {
         HoldButton {
             Layout.alignment: Qt.AlignHCenter
             Layout.topMargin: 4
-            visible: root.manage && !root.item && !root.session.waitUntil && Vocab.freshCount > 0
+            visible: root.manage && !root.item && Vocab.freshCount > 0
             text: `Learn more · hold`
             onHeld: {
                 Vocab.learnMore();
@@ -220,7 +224,7 @@ ColumnLayout {
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.Wrap
             opacity: root.item && root.phase !== "ask" ? 1 : 0
-            text: !root.item || root.phase === "ask" ? " " : root.phase === "right" ? `\u{F012C} ${root.item.answer}` : root.item.answer
+            text: !root.item || root.phase === "ask" ? " " : root.phase === "rate" ? `\u{F012C} ${root.item.answer}` : root.item.answer
             color: root.phase === "wrong" ? Config.colours.red : Config.colours.green
             font.family: Config.font.family
             font.pointSize: Config.font.size + 4
@@ -258,17 +262,41 @@ ColumnLayout {
             }
         }
 
-        // Under a right answer: anything about how it was typed, and when it's asked again.
+        // Under a right answer: anything about how it was typed, then Hard, Good and Easy with
+        // when each brings it back.
         Text {
             Layout.fillWidth: true
             Layout.topMargin: -6
-            visible: root.phase === "right"
+            visible: root.phase === "rate" && root.session.note !== ""
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.Wrap
             text: root.session.note
             color: Config.colours.subtext
             font.family: Config.font.family
             font.pointSize: Config.font.small
+        }
+
+        RowLayout {
+            Layout.alignment: Qt.AlignHCenter
+            visible: root.phase === "rate"
+            spacing: 18
+
+            Repeater {
+                model: root.phase === "rate" ? root.session.choices() : []
+
+                VocabOption {
+                    required property var modelData
+                    required property int index
+
+                    text: `${index + 1} ${modelData.label} · ${modelData.when}`
+                    on: modelData.grade === 3
+                    font.pointSize: Config.font.size
+                    onClicked: {
+                        root.session.rate(modelData.grade);
+                        root.focusInput();
+                    }
+                }
+            }
         }
 
         // The word's note, e.g. its grammar, once answered.
@@ -296,16 +324,54 @@ ColumnLayout {
             font.pointSize: Config.font.small
         }
 
-        // A suggested mnemonic, or one being thought of, in the pane.
+        // Mnemonics being thought of, or why there are none, in the pane.
         Text {
             Layout.fillWidth: true
-            visible: root.manage && root.mnemonicHere && root.phase !== "ask" && (Mnemonic.loading || root.suggested || Mnemonic.error !== "")
+            visible: root.manage && root.mnemonicHere && root.phase !== "ask" && (Mnemonic.loading || (!root.suggested && Mnemonic.error !== ""))
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.Wrap
-            text: Mnemonic.loading ? "Thinking of a mnemonic…" : root.suggested ? `\u{F0335} ${Mnemonic.suggestion}` : `No mnemonic: ${Mnemonic.error}`
-            color: root.suggested ? Config.colours.yellow : Config.colours.muted
+            text: Mnemonic.loading ? "Thinking of mnemonics…" : `No mnemonics: ${Mnemonic.error}`
+            color: Config.colours.muted
             font.family: Config.font.family
             font.pointSize: Config.font.small
+        }
+
+        // The suggested mnemonics, numbered: a click or the number keeps one.
+        ColumnLayout {
+            Layout.fillWidth: true
+            visible: root.manage && root.suggested && root.phase !== "ask"
+            spacing: 4
+
+            Repeater {
+                model: root.suggested ? Mnemonic.suggestions : []
+
+                Text {
+                    id: suggestion
+
+                    required property string modelData
+                    required property int index
+
+                    Layout.fillWidth: true
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.Wrap
+                    text: `${suggestion.index + 1}  ${suggestion.modelData}`
+                    color: pick.containsMouse ? Config.colours.text : Config.colours.yellow
+                    font.family: Config.font.family
+                    font.pointSize: Config.font.small
+
+                    MouseArea {
+                        id: pick
+
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            root.keepMnemonic(suggestion.index);
+                            root.focusInput();
+                        }
+                    }
+                }
+            }
         }
 
         // A hard word without mnemonics set up: how to keep one of one's own.
@@ -327,32 +393,23 @@ ColumnLayout {
             visible: root.manage && root.item !== null && root.phase !== "ask"
             spacing: 16
 
-            VocabOption {
+            Text {
                 visible: root.suggested
-                text: "Keep it · Tab"
-                on: true
-                onClicked: {
-                    root.keepMnemonic();
-                    root.focusInput();
-                }
+                text: `${root.phase === "rate" ? "Alt+" : ""}1–${Mnemonic.suggestions.length} keeps one`
+                color: Config.colours.muted
+                font.family: Config.font.family
+                font.pointSize: Config.font.small
             }
 
             VocabOption {
-                visible: Mnemonic.configured && !Mnemonic.loading
-                text: root.suggested ? "Another" : root.item?.card.mnemonic ? "Suggest a better mnemonic" : "\u{F0335} Suggest a mnemonic"
+                visible: root.canSuggest
+                text: `${root.suggested ? "Other ideas" : Mnemonic.ready(root.item?.card) ? "\u{F0335} Mnemonics ready" : root.item?.card.mnemonic ? "Suggest better mnemonics" : "\u{F0335} Suggest mnemonics"} · Tab`
                 onClicked: {
                     root.suggestMnemonic();
                     root.focusInput();
                 }
             }
 
-            Text {
-                visible: root.session.paused
-                text: "Enter goes on"
-                color: Config.colours.muted
-                font.family: Config.font.family
-                font.pointSize: Config.font.small
-            }
         }
 
         Rectangle {
@@ -414,7 +471,6 @@ ColumnLayout {
                 anchors.leftMargin: 10
                 anchors.rightMargin: 16
                 verticalAlignment: TextInput.AlignVCenter
-                readOnly: root.phase === "right"
                 color: Config.colours.text
                 selectionColor: Config.colours.subtext
                 font.family: Config.font.family
@@ -426,17 +482,27 @@ ColumnLayout {
                 onTextChanged: if (text && !text.startsWith("#")) root.session.typed()
                 // Ctrl+Enter after an answer judged wrong: it was right.
                 Keys.onReturnPressed: event => root.enter(event)
-                // Tab keeps a suggested mnemonic.
+                // Tab asks for mnemonics, or other ones.
                 Keys.onTabPressed: event => {
-                    if (root.manage && root.suggested)
-                        root.keepMnemonic();
+                    if (root.canSuggest)
+                        root.suggestMnemonic();
                     else
                         event.accepted = false;
                 }
                 Keys.onEnterPressed: event => root.enter(event)
                 Keys.onEscapePressed: root.escaped()
                 Keys.onPressed: event => {
-                    if (event.key === Qt.Key_Backspace && input.text === "") {
+                    // While rating, 1, 2 and 3 in the empty field are Hard, Good and Easy; else a
+                    // number keeps that suggested mnemonic (Alt and a number always does).
+                    const n = event.key - Qt.Key_1;
+                    const alt = event.modifiers & Qt.AltModifier;
+                    if (root.phase === "rate" && !alt && input.text === "" && n >= 0 && n < 3) {
+                        root.session.rate(n + 2);
+                        event.accepted = true;
+                    } else if (root.manage && root.suggested && (input.text === "" || alt) && n >= 0 && n < Mnemonic.suggestions.length) {
+                        root.keepMnemonic(n);
+                        event.accepted = true;
+                    } else if (event.key === Qt.Key_Backspace && input.text === "") {
                         root.backedOut();
                         event.accepted = true;
                     } else if (root.manage && event.key === Qt.Key_Delete && event.modifiers & Qt.ControlModifier && root.item) {
@@ -450,7 +516,7 @@ ColumnLayout {
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
                     visible: !input.text
-                    text: root.phase === "wrong" ? "Type it out to go on" : root.item ? "Translation · Enter alone shows it" : root.manage ? "+word = translation" : ""
+                    text: root.phase === "wrong" ? "Type it out to go on" : root.phase === "rate" ? "1 Hard · 2 Good · 3 Easy · Enter is Good" : root.item ? "Translation · Enter alone shows it" : root.manage ? "+word = translation" : ""
                     color: Config.colours.muted
                     font: input.font
                 }

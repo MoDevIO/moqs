@@ -19,6 +19,9 @@
         # For running from a checkout: `nix build .#mpv-mpris -o mpv-mpris` gives the music
         # player MPRIS, as the module does.
         mpv-mpris = pkgs.mpvScripts.mpris;
+        # For running from a checkout: `nix build .#german-words -o german-words.txt` gives the
+        # vocabulary's sound-alike keywords their word list, as the package has.
+        german-words = (pkgs.callPackage ./nix/package.nix { }).germanWords;
       });
 
       # Keyed, so importing a module twice (say, homeManagerModules.default by hand and

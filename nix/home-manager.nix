@@ -87,7 +87,12 @@ let
         pkgs.writeText "mnemonics.json" (
           builtins.toJSON (
             {
-              inherit (cfg.vocab.mnemonics) url model language;
+              inherit (cfg.vocab.mnemonics)
+                url
+                model
+                language
+                prepareModel
+                ;
             }
             // lib.optionalAttrs (cfg.vocab.mnemonics.apiKeyCommand != null) { inherit (cfg.vocab.mnemonics) apiKeyCommand; }
             // lib.optionalAttrs (cfg.vocab.mnemonics.apiKeyFile != null) {

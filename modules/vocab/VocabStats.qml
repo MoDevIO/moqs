@@ -151,7 +151,7 @@ ColumnLayout {
 
     Label {
         visible: root.stats.hard.length > 0
-        text: `Hard words · ${root.stats.hard.length}, missed most first`
+        text: `Hard words · ${root.stats.hard.length}, forgotten most first`
         Layout.fillWidth: true
         wrapMode: Text.Wrap
     }
@@ -177,7 +177,7 @@ ColumnLayout {
             }
 
             Text {
-                text: `${hardRow.modelData.misses}×`
+                text: `${hardRow.modelData.lapses}×`
                 color: Config.colours.red
                 font.family: Config.font.family
                 font.pointSize: Config.font.small
