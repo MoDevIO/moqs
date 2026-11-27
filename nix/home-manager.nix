@@ -36,13 +36,16 @@ let
     chmod -R u+w $out
     cp ${
       pkgs.writeText "settings.json" (
-        builtins.toJSON {
-          inherit (cfg) dragToOpen;
-          launcher.search = cfg.launcher.searchEngine;
-          lock.pam = cfg.lock.pamService;
-          updates = lib.filterAttrs (_: v: v != null) { inherit (cfg.updates) flake host; };
-          capture.ocr = cfg.capture.ocrLanguages;
-        }
+        builtins.toJSON (
+          {
+            inherit (cfg) dragToOpen;
+            launcher.search = cfg.launcher.searchEngine;
+            lock.pam = cfg.lock.pamService;
+            updates = lib.filterAttrs (_: v: v != null) { inherit (cfg.updates) flake host; };
+            capture.ocr = cfg.capture.ocrLanguages;
+          }
+          // lib.optionalAttrs (cfg.vocab.server != null) { vocab.server = cfg.vocab.server; }
+        )
       )
     } $out/settings.json
     ${lib.optionalString (cfg.airdrop.name != null) ''

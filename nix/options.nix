@@ -148,6 +148,16 @@ in
     description = "The name other devices see for AirDrop. `null` uses the host name.";
   };
 
+  vocab.server = mkOption {
+    type = types.nullOr types.str;
+    default = null;
+    example = "http://worker-03";
+    description = ''
+      The moqs-vocab server the vocabulary trainer uses: words, schedule, settings, stats and
+      sessions all live there (with its web app). `null`: no vocabulary trainer words.
+    '';
+  };
+
   vocab.mnemonics = {
     enable = mkEnableOption "mnemonics for hard vocabulary words, suggested by a language model behind an OpenAI-compatible API";
 

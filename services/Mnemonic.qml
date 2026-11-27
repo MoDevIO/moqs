@@ -81,7 +81,7 @@ Singleton {
         return preparedFor(card).length > 0;
     }
 
-    // Suggests mnemonics for `item` (see Vocab.items): the prepared ones if there are,
+    // Suggests mnemonics for `item` (see VocabSession.item): the prepared ones if there are,
     // otherwise (and when asked again for the same word) from the model. `confused` is a card
     // mixed up with it, or null.
     function suggest(item: var, confused: var): void {

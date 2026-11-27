@@ -20,8 +20,8 @@ ColumnLayout {
     property bool manage
     readonly property var item: session.item
     readonly property string phase: session.phase
-    // Missed again and again (Vocab.hard).
-    readonly property bool hard: Vocab.hard(item)
+    // Forgotten again and again (a leech, as Anki calls it).
+    readonly property bool hard: item?.hard ?? false
     // A mnemonic suggested for the word shown, or being thought of.
     readonly property bool mnemonicHere: item !== null && Mnemonic.key === item.key
     readonly property bool suggested: mnemonicHere && Mnemonic.suggestions.length > 0
@@ -47,35 +47,13 @@ ColumnLayout {
         return d.toDateString() === new Date().toDateString() ? `at ${Qt.formatTime(d, "hh:mm")}` : Qt.formatDateTime(d, "ddd hh:mm");
     }
 
-    // What was typed against the nearest right answer, as Anki shows it: right letters dim,
-    // wrong ones red, missing ones orange. StyledText.
-    function compare(typed: string, answer: string): string {
-        const t = Vocab.clean(typed);
-        const best = Vocab.accepted(answer).reduce((a, b) => Vocab.distance(t, b) < Vocab.distance(t, a) ? b : a);
-        // The edit table, then back through it.
-        const n = t.length, m = best.length;
-        const d = Array.from({ length: n + 1 }, (_, i) => Array.from({ length: m + 1 }, (_, j) => i + j));
-        for (let i = 1; i <= n; i++)
-            for (let j = 1; j <= m; j++)
-                d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (t[i - 1] === best[j - 1] ? 0 : 1));
-        const out = [];
+    // What was typed against the nearest right answer, as the server compared them
+    // (session.compare) and Anki shows it: right letters dim, wrong ones red, extra ones struck
+    // out, missing ones orange. StyledText.
+    function paint(letters: var): string {
         const esc = c => c === "<" ? "&lt;" : c === ">" ? "&gt;" : c === "&" ? "&amp;" : c;
-        const paint = (c, colour) => `<font color="${colour}">${esc(c)}</font>`;
-        let i = n, j = m;
-        while (i > 0 || j > 0) {
-            if (i > 0 && j > 0 && d[i][j] === d[i - 1][j - 1] + (t[i - 1] === best[j - 1] ? 0 : 1)) {
-                out.unshift(t[i - 1] === best[j - 1] ? paint(t[i - 1], Config.colours.subtext) : paint(t[i - 1], Config.colours.red));
-                i--;
-                j--;
-            } else if (i > 0 && d[i][j] === d[i - 1][j] + 1) {
-                out.unshift(`<s>${paint(t[i - 1], Config.colours.red)}</s>`);
-                i--;
-            } else {
-                out.unshift(`<u>${paint(best[j - 1], Config.colours.orange)}</u>`);
-                j--;
-            }
-        }
-        return out.join("");
+        const font = (c, colour) => `<font color="${colour}">${esc(c)}</font>`;
+        return (letters ?? []).map(l => l.k === "ok" ? font(l.c, Config.colours.subtext) : l.k === "wrong" ? font(l.c, Config.colours.red) : l.k === "extra" ? `<s>${font(l.c, Config.colours.red)}</s>` : `<u>${font(l.c, Config.colours.orange)}</u>`).join("");
     }
 
     function focusInput(): void {
@@ -94,14 +72,14 @@ ColumnLayout {
         const text = suggested ? Mnemonic.suggestions[index] : undefined;
         if (!text)
             return;
-        const key = item.key;
         const card = item.card;
-        if (Vocab.setMnemonic(card, text)) {
+        const updated = Vocab.setMnemonic(card, text);
+        if (updated) {
             Mnemonic.kept(card, text, false);
             added = "Mnemonic kept";
             Mnemonic.clear();
             // The word again, with its mnemonic.
-            session.item = Vocab.items.find(i => i.key === key) ?? session.item;
+            session.item = Object.assign({}, session.item, { card: updated });
         }
     }
 
@@ -135,15 +113,15 @@ ColumnLayout {
         }
         // A mnemonic of one's own for the word shown.
         if (manage && t.startsWith("#") && item) {
-            const key = item.key;
             const card = item.card;
-            if (Vocab.setMnemonic(card, t.slice(1))) {
+            const updated = Vocab.setMnemonic(card, t.slice(1));
+            if (updated) {
                 Mnemonic.kept(card, t.slice(1).trim(), true);
                 added = t.slice(1).trim() ? "Mnemonic saved" : "Mnemonic removed";
                 Mnemonic.clear();
                 input.text = "";
                 // The word again, with its new note.
-                session.item = Vocab.items.find(i => i.key === key) ?? session.item;
+                session.item = Object.assign({}, session.item, { card: updated });
             } else {
                 shake.restart();
             }
@@ -219,7 +197,7 @@ ColumnLayout {
             Layout.topMargin: 6
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.Wrap
-            text: root.item ? root.item.prompt : Vocab.cards.length ? "All caught up" : "No words yet"
+            text: root.item ? root.item.prompt : Vocab.cards.length ? "All caught up" : !Vocab.server || Vocab.serverError ? "No words" : !Vocab.serverState ? "Loading…" : "No words yet"
             color: root.item ? Config.colours.text : Config.colours.subtext
             font.family: Config.font.sans
             font.pointSize: root.item ? 22 : Config.font.size + 2
@@ -232,7 +210,7 @@ ColumnLayout {
             Layout.topMargin: -8
             visible: root.hard
             horizontalAlignment: Text.AlignHCenter
-            text: `hard word · forgotten ${Vocab.sched[root.item?.key ?? ""]?.lapses ?? 0}×`
+            text: `hard word · forgotten ${root.item?.lapses ?? 0}×`
             color: Config.colours.red
             font.family: Config.font.family
             font.pointSize: Config.font.small
@@ -243,7 +221,7 @@ ColumnLayout {
             visible: !root.item
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.Wrap
-            text: Vocab.cards.length ? [Vocab.todayAnswers.n ? `Today: ${Vocab.todayAnswers.n} answered, ${Math.round(Vocab.todayAnswers.r / Vocab.todayAnswers.n * 100)} % right` : "", Vocab.nextDue ? `The next word is due ${root.when(Vocab.nextDue)}` : ""].filter(x => x).join("\n") : `Type +word = translation below, or add lines like that to ${Vocab.wordsPath.replace(Quickshell.env("HOME"), "~")}`
+            text: !Vocab.server ? "No vocabulary server is set: services.moqs.vocab.server" : Vocab.serverError ? Vocab.serverError : !Vocab.serverState ? "" : Vocab.cards.length ? [Vocab.todayAnswers.n ? `Today: ${Vocab.todayAnswers.n} answered, ${Math.round(Vocab.todayAnswers.r / Vocab.todayAnswers.n * 100)} % right` : "", Vocab.nextDue ? `The next word is due ${root.when(Vocab.nextDue)}` : ""].filter(x => x).join("\n") : `Type +word = translation below, or add words on ${Vocab.server}`
             color: Config.colours.subtext
             font.family: Config.font.family
             font.pointSize: Config.font.small
@@ -299,11 +277,11 @@ ColumnLayout {
         Text {
             Layout.fillWidth: true
             Layout.topMargin: -6
-            visible: root.phase === "wrong" && root.session.typedWrong !== "" && root.session.confused === null
+            visible: root.phase === "wrong" && root.session.compare !== null && root.session.confused === null
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.Wrap
             textFormat: Text.StyledText
-            text: visible ? `<font color="${Config.colours.subtext}">You typed </font>${root.compare(root.session.typedWrong, root.item.answer)}` : ""
+            text: visible ? `<font color="${Config.colours.subtext}">You typed </font>${root.paint(root.session.compare)}` : ""
             font.family: Config.font.family
             font.pointSize: Config.font.small
         }

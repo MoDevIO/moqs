@@ -9,7 +9,7 @@ import qs.config
 //   { "dragToOpen": { "notifications": false, "music": true, "matrix": true },
 //     "launcher": { "search": "https://duckduckgo.com/?q=%s" }, "lock": { "pam": "login" },
 //     "updates": { "flake": "/home/me/nixos-config", "host": "laptop" },
-//     "capture": { "ocr": ["eng", "deu"] } }
+//     "capture": { "ocr": ["eng", "deu"] }, "vocab": { "server": "http://worker-03" } }
 // dragToOpen: the corner's panel is pulled out of the border, like the dashboard, instead
 // of opening when the pointer reaches the corner.
 // launcher.search: the launcher's web search ("?…"), %s standing for the query. Without
@@ -19,6 +19,8 @@ import qs.config
 // nixosConfigurations name (this machine's hostname without one); see Updates.
 // capture.ocr: the languages Capture's "Copy text" reads, tesseract's codes; English and
 // German without it.
+// vocab.server: a moqs-vocab server whose words, schedule and sessions the vocabulary
+// trainer uses instead of the files in ~/.local/state/moqs (see Vocab). Empty: those files.
 Singleton {
     readonly property alias dragToOpen: settings.dragToOpen
     readonly property string search: settings.launcher.search.includes("%s") ? settings.launcher.search : Config.launcher.search
@@ -26,6 +28,7 @@ Singleton {
     readonly property string updatesFlake: settings.updates.flake
     readonly property string updatesHost: settings.updates.host
     readonly property string ocrLanguages: Array.from(settings.capture.ocr ?? []).join("+") || "eng+deu"
+    readonly property string vocabServer: settings.vocab.server.trim().replace(/\/+$/, "")
 
     FileView {
         path: Quickshell.shellPath("settings.json")
@@ -57,6 +60,10 @@ Singleton {
 
             property JsonObject capture: JsonObject {
                 property var ocr: []
+            }
+
+            property JsonObject vocab: JsonObject {
+                property string server
             }
         }
     }

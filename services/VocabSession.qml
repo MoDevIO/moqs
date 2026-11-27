@@ -2,69 +2,145 @@ import QtQuick
 import qs.config
 
 // One vocabulary quiz in progress, shown by VocabQuiz: the launcher's ";" pane has one, the
-// lock screen one (shared by all its screens) and the game gate one. It goes as in Anki with
-// the answer typed: a word is asked ("ask"); a wrong answer, or Enter with nothing typed,
-// counts as Again and shows the answer, which has to be typed out ("wrong") before the next
-// word; after a right one the learner rates it ("rate"): Hard, Good or Easy, each with the
-// interval it gives (see choices()). Then comes the next word, or for the lock and games
-// (gate) the way through. Words missed come back by Anki's learning steps (Vocab.pick()).
-// A wrong answer that is another word's answer is a mix-up (`confused`), which the card
-// points out.
+// lock screen one (shared by all its screens) and the game gate one. It runs on the server
+// (Vocab.server, a session there) and this follows what the server says of it (its "view").
+// It goes as in Anki with the answer typed: a word is asked ("ask"); a wrong answer, or
+// Enter with nothing typed, counts as Again and shows the answer, which has to be typed out
+// ("wrong") before the next word; after a right one the learner rates it ("rate"): Hard,
+// Good or Easy, each with the interval it gives (choices()). Then comes the next word, or
+// for the lock and games (gate) the way through. A wrong answer that is another word's
+// answer is a mix-up (`confused`), which the card points out.
 //
 // In the pane, an answer judged wrong can be counted as right after all (overrule(), "I got
 // it right"), say a synonym the list doesn't have: the Again is taken back and it's rated.
 // The last answer can be undone too (undoLast(), Ctrl+Z as in Anki): the word is asked again.
 //
-// Every answer goes to Vocab.log().
+// If the server can't be reached, the lock and games let through rather than shut out, and
+// the pane says why (Vocab.serverError).
 QtObject {
     id: root
 
     // For the lock and games: always a word, and passed() after the first one rated.
     property bool gate
-    // Where it's asked, for the log: pane, lock or game.
+    // Where it's asked, for the server's log: pane, lock or game.
     property string where: "pane"
-    // The word asked (see Vocab.items), or null when nothing is due.
+    // The word asked, { key, prompt, answer, dir, card, hard, lapses }, or null when nothing
+    // is due.
     property var item: null
     // ask, rate or wrong
     property string phase: "ask"
     // Said under the answer, e.g. about accents.
     property string note
-    // The card whose answer was typed by mistake, or null.
+    // The card whose answer was typed by mistake, { front, back }, or null.
     property var confused: null
     // When the word was shown, and when its first key was typed.
     property real shownAt
     property real firstKeyAt
-    // The right answer to rate: what was typed and how it was checked, for the log.
-    property var answered: null
-    // After an answer judged wrong (something typed, not for the lock or a game): what it
-    // changed, for overrule(). Else null.
-    property var undo: null
-    readonly property bool canOverrule: !gate && phase === "wrong" && undo !== null
-    // What was typed for a wrong answer, shown against the right one.
+    // What was typed for a wrong answer, and it against the right one: [{ c, k: ok, wrong,
+    // extra or missing }], or null.
     property string typedWrong
-    // The last answer graded, for undoLast(): { snap, item, t, right }. Else null.
-    property var last: null
-    readonly property bool canUndo: !gate && last !== null
+    property var compare: null
+    readonly property bool canOverrule: !!view?.canOverrule && phase === "wrong"
+    readonly property bool canUndo: !!view?.canUndo
     // Answers in this session, and right ones.
     property int answers
     property int rights
+    // The session's id on the server (and which server), what it last said, and whether a
+    // call is out.
+    property string sid
+    property string sidServer
+    property var view: null
+    property bool busy
 
     signal passed
     // A wrong answer or retype, for the field to shake.
     signal rejected
 
-    // Moves on to the next word.
+    // Calls the session's `path` (after creating it on the server if need be) and takes the
+    // view it returns; then(reply) after. A session the server lost (it restarted) is made
+    // anew, with a new word.
+    function call(method: string, path: string, body: var, then: var): void {
+        const server = Vocab.server;
+        const fail = () => {
+            busy = false;
+            if (gate)
+                passed();
+        };
+        const send = () => Vocab.api(method, `/api/sessions/${sid}${path}`, body, (status, r) => {
+            if (Vocab.server !== server)
+                return;
+            busy = false;
+            if (status === 404) {
+                sid = "";
+                start();
+            } else if (status === 200 && r) {
+                take(r);
+                if (then)
+                    then(r);
+            } else if (status === 409) {
+                // Out of step with the server (an answer elsewhere went first): ask again.
+                start();
+            } else if (status === 0 || status >= 500) {
+                fail();
+            }
+        });
+        busy = true;
+        if (sidServer !== server)
+            sid = "";
+        if (sid) {
+            send();
+            return;
+        }
+        Vocab.api("POST", "/api/sessions", { where, gate }, (status, r) => {
+            if (Vocab.server !== server)
+                return;
+            if (status === 201 && r?.id) {
+                sid = r.id;
+                sidServer = server;
+                send();
+            } else {
+                fail();
+            }
+        });
+    }
+
+    // What the server says the session is.
+    function take(v: var): void {
+        const was = item;
+        view = v;
+        const it = v.item;
+        if (!it)
+            item = null;
+        else if (!was || was.key !== it.key || JSON.stringify(was.card) !== JSON.stringify(it.card) || was.hard !== it.hard)
+            item = it;
+        if (!was || !it || was.key !== it.key || v.phase === "ask" && phase !== "ask") {
+            shownAt = Date.now();
+            firstKeyAt = 0;
+        }
+        note = v.note ?? "";
+        confused = v.mixup ? { front: v.mixup.front, back: v.mixup.back } : null;
+        typedWrong = v.typed ?? "";
+        compare = v.compare ?? null;
+        answers = v.answers ?? 0;
+        rights = v.rights ?? 0;
+        if (v.phase === "passed") {
+            passed();
+            return;
+        }
+        phase = v.phase;
+    }
+
+    // Moves on to the next word (or, while one is shown unanswered, stays with it).
     function start(): void {
-        const prev = item?.key ?? "";
+        if (busy)
+            return;
+        if (!Vocab.server) {
+            if (gate)
+                passed();
+            return;
+        }
         phase = "ask";
-        note = "";
-        confused = null;
-        answered = null;
-        undo = null;
-        typedWrong = "";
-        item = Vocab.pick(gate, prev, []);
-        shownAt = Date.now();
-        firstKeyAt = 0;
+        call("GET", `/next?gate=${gate ? 1 : 0}`, null, null);
     }
 
     // Something was typed in the field.
@@ -74,35 +150,19 @@ QtObject {
     }
 
     function stop(): void {
-        last = null;
+        if (sid)
+            Vocab.api("DELETE", `/api/sessions/${sid}`, null, null);
+        sid = "";
+        view = null;
+        busy = false;
         answers = 0;
         rights = 0;
         typedWrong = "";
+        compare = null;
         phase = "ask";
         note = "";
         confused = null;
-        answered = null;
-        undo = null;
         item = null;
-    }
-
-    // The log's record of an answer to the word shown.
-    function record(text: string, r: var, extra: var): var {
-        return Object.assign({
-            t: Date.now(),
-            day: Vocab.today(),
-            where,
-            key: item.key,
-            word: item.prompt,
-            answer: item.answer,
-            dir: item.dir,
-            typed: text.trim(),
-            ok: r.ok,
-            note: r.note || undefined,
-            mixup: confused ? `${confused.front} = ${confused.back}` : undefined,
-            firstKey: firstKeyAt ? Math.round(firstKeyAt - shownAt) : undefined,
-            took: Math.round(Date.now() - shownAt)
-        }, extra);
     }
 
     // What was typed for the word. Returns whether the field should clear.
@@ -111,40 +171,19 @@ QtObject {
             start();
             return false;
         }
+        if (busy)
+            return false;
         // Enter while rating: Good, as in Anki.
         if (phase === "rate") {
             rate(3);
             return true;
         }
-        const r = Vocab.check(item, text);
-        if (phase === "ask") {
-            if (r.ok) {
-                answered = { text, r, took: Date.now() - shownAt };
-                phase = "rate";
-                note = r.note;
-                return true;
-            }
-            // Wrong, or nothing typed: Again.
-            const t = Date.now();
-            const snap = Object.assign(Vocab.snapshot(item), { t, text, r });
-            const before = Vocab.sched[item.key] ? Object.assign({}, Vocab.sched[item.key]) : null;
-            confused = Vocab.mixup(item, text);
-            last = { snap: Vocab.snapshot(item), item, t, right: false };
-            answers++;
-            typedWrong = text.trim();
-            Vocab.grade(item, 1);
-            Vocab.log(record(text, r, { t, grade: 1, before, after: Vocab.sched[item.key] }));
-            phase = "wrong";
-            note = "";
-            undo = !gate && text.trim() ? snap : null;
-            rejected();
-            return true;
-        }
-        // Typing out the answer shown.
-        if (r.ok)
-            start();
-        else
-            rejected();
+        const now = Date.now();
+        Vocab.lastAnswer = now;
+        call("POST", "/answer", { key: item.key, typed: text, firstKeyMs: firstKeyAt ? firstKeyAt - shownAt : undefined, tookMs: now - shownAt }, r => {
+            if (!r.ok)
+                rejected();
+        });
         return true;
     }
 
@@ -152,67 +191,24 @@ QtObject {
     function choices(): var {
         if (!item || phase !== "rate")
             return [];
-        return [[2, "Hard"], [3, "Good"], [4, "Easy"]].map(([grade, label]) => ({
-                    grade,
-                    label,
-                    when: Vocab.span(Vocab.next(item, grade))
-                }));
+        return view?.choices ?? [];
     }
 
     // Rates the right answer: 2 Hard, 3 Good or 4 Easy.
     function rate(g: int): void {
-        if (phase !== "rate" || !answered)
-            return;
-        const before = Vocab.sched[item.key] ? Object.assign({}, Vocab.sched[item.key]) : null;
-        const t = Date.now();
-        last = { snap: Vocab.snapshot(item), item, t, right: true };
-        answers++;
-        rights++;
-        Vocab.grade(item, g);
-        Vocab.log(Object.assign(record(answered.text, answered.r, { t, grade: g, before, after: Vocab.sched[item.key] }), { took: Math.round(answered.took) }));
-        answered = null;
-        if (gate)
-            passed();
-        else
-            start();
+        if (phase === "rate" && item && !busy)
+            call("POST", "/rate", { key: item.key, grade: g }, null);
     }
 
     // Takes the last answer back and asks its word again, as Anki's undo.
     function undoLast(): void {
-        if (!canUndo)
-            return;
-        const l = last;
-        last = null;
-        Vocab.restore(l.snap);
-        Vocab.log({ t: Date.now(), day: Vocab.today(), where, key: l.item.key, undoes: l.t });
-        answers = Math.max(0, answers - 1);
-        if (l.right)
-            rights = Math.max(0, rights - 1);
-        phase = "ask";
-        note = "";
-        confused = null;
-        answered = null;
-        undo = null;
-        typedWrong = "";
-        item = l.item;
-        shownAt = Date.now();
-        firstKeyAt = 0;
+        if (canUndo && !busy)
+            call("POST", "/undo", null, null);
     }
 
     // The answer judged wrong was right: takes the Again back, to be rated instead.
     function overrule(): void {
-        if (!canOverrule)
-            return;
-        const snap = undo;
-        undo = null;
-        confused = null;
-        Vocab.log({ t: Date.now(), day: Vocab.today(), where, key: item.key, overrules: snap.t });
-        Vocab.restore(snap);
-        answers--;
-        last = null;
-        typedWrong = "";
-        answered = { text: snap.text, r: { ok: true, note: "Counted as right" }, took: snap.t - shownAt };
-        phase = "rate";
-        note = "Counted as right";
+        if (canOverrule && !busy)
+            call("POST", "/overrule", null, null);
     }
 }
