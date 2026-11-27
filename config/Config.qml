@@ -218,7 +218,8 @@ Singleton {
     readonly property QtObject colours: QtObject {
         readonly property color text: "#ffffff"
         readonly property color subtext: "#9a9a9a"
-        readonly property color muted: "#3c3c3c"
+        // Hints and things switched off: dim, but still readable on black.
+        readonly property color muted: "#5a5a5a"
         readonly property color card: "#141414"
         readonly property color button: "#232323"
         readonly property color buttonHover: "#323232"
@@ -230,6 +231,8 @@ Singleton {
         readonly property color yellow: "#f9d65c"
         // A right answer.
         readonly property color green: "#5fd068"
+        // New words, and Easy, as in Anki.
+        readonly property color blue: "#5ea1ff"
     }
 
     readonly property QtObject hyprland: QtObject {

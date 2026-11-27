@@ -100,9 +100,27 @@ Singleton {
     // Words for all entities of a domain, as in "lights off".
     readonly property var groups: ({ lights: "light", switches: "switch", fans: "fan", covers: "cover", blinds: "cover" })
 
+    // A name as it's compared: lower case, umlauts however they're typed (ä, ae and a all
+    // as a; ß as ss), without accents, so "kueche" and "kuche" find "Küche".
+    function fold(s: string): string {
+        return String(s).toLowerCase().replace(/ß/g, "ss").replace(/ä|ae/g, "a").replace(/ö|oe/g, "o").replace(/ü|ue/g, "u").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    }
+
+    // Whether `a` and `b` differ by at most one letter (one changed, added or left out).
+    function oneOff(a: string, b: string): bool {
+        if (Math.abs(a.length - b.length) > 1)
+            return false;
+        let i = 0;
+        while (i < a.length && i < b.length && a[i] === b[i])
+            i++;
+        return a.slice(i + 1) === b.slice(i + 1) || a.slice(i) === b.slice(i + 1) || a.slice(i + 1) === b.slice(i);
+    }
+
     // What the launcher's ">query" can do, best match first: [{ entity, all, name, action,
     // value, glyph, detail }]. The query is a name, then optionally on, off (or an, aus),
     // toggle, or a number: brightness or volume in percent, a temperature, a position.
+    // Names match however umlauts are typed (see fold()), and with one typo in a word of
+    // four letters or more.
     function commands(query: string): var {
         let q = query.trim().toLowerCase();
         let word = "";
@@ -121,10 +139,16 @@ Singleton {
             out.push({ entity: group, all: true, name: `All ${q}`, action: word, value: 0, glyph: glyph(group === "light" ? "lightbulb-group" : "home-automation"), detail: `Enter turns all ${word}`, score: 200 });
         }
         const ids = q ? allEntities : entities;
+        const f = fold(q);
+        const typed = f.split(/\s+/).filter(w => w);
         for (const id of ids) {
             const label = root.name({ entity: id, name: "" });
-            const n = label.toLowerCase();
-            let sc = !q ? 50 : n === q ? 100 : n.startsWith(q) ? 90 : n.split(/[\s\-_.]+/).some(w => w.startsWith(q)) ? 80 : n.includes(q) ? 70 : q.split(/\s+/).every(w => n.includes(w)) ? 60 : id.includes(q.replace(/\s+/g, "_")) ? 40 : 0;
+            const n = fold(label);
+            const words = n.split(/[\s\-_.]+/);
+            // Each word typed is in the name, or (four letters or more) one letter off a
+            // word of it or its start.
+            const near = typed.every(t => n.includes(t) || (t.length >= 4 && words.some(w => oneOff(t, w) || oneOff(t, w.slice(0, t.length)))));
+            let sc = !q ? 50 : n === f ? 100 : n.startsWith(f) ? 90 : words.some(w => w.startsWith(f)) ? 80 : n.includes(f) ? 70 : typed.every(w => n.includes(w)) ? 60 : fold(id).includes(f.replace(/\s+/g, "_")) ? 40 : near ? 30 : 0;
             if (!sc)
                 continue;
             const act = actionFor(id, word, num);

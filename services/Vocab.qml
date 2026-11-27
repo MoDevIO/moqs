@@ -100,6 +100,23 @@ Singleton {
         return out;
     }
 
+    // What's left now, as Anki counts it: new words still to see today, words in learning
+    // steps due (or within Config.vocab.learnAhead minutes), and reviews due.
+    readonly property int learningCount: {
+        version;
+        return items.filter(i => sched[i.key] && learning(sched[i.key]) && sched[i.key].due <= now + Config.vocab.learnAhead * 60000).length;
+    }
+    readonly property int reviewCount: {
+        version;
+        return items.filter(i => sched[i.key] && !learning(sched[i.key]) && sched[i.key].due <= now).length;
+    }
+    // Today's answers and right ones (Again aside).
+    readonly property var todayAnswers: {
+        version;
+        const h = history[dayKey(now)];
+        return { n: h?.n ?? 0, r: h?.r ?? 0 };
+    }
+
     readonly property int dueCount: {
         version;
         return items.filter(i => sched[i.key] && sched[i.key].due <= now).length;

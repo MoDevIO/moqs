@@ -10,8 +10,8 @@ import qs.services
 // with when it would come back. Once answered, the word's note and mnemonic show. In the launcher (manage) it also takes
 // "+word = translation" to add a word, "# mnemonic" to set the one shown's mnemonic, Ctrl+Delete
 // to remove it, "I got it right" (or Ctrl+Enter) to count an answer judged wrong as right, and
-// shows what's due and the settings (a click switches them), and the stats in place of the
-// card. With Mnemonic set up, it suggests mnemonics once answered, on a click or Tab; a
+// shows what's left (new, learning, review, coloured as in Anki), Ctrl+Z to undo the last
+// answer, the settings (a click switches them), and the stats in place of the card. With Mnemonic set up, it suggests mnemonics once answered, on a click or Tab; a
 // click or 1–4 keeps one (Alt+1–4 while rating, where the numbers rate).
 ColumnLayout {
     id: root
@@ -45,6 +45,37 @@ ColumnLayout {
     function when(ms: real): string {
         const d = new Date(ms);
         return d.toDateString() === new Date().toDateString() ? `at ${Qt.formatTime(d, "hh:mm")}` : Qt.formatDateTime(d, "ddd hh:mm");
+    }
+
+    // What was typed against the nearest right answer, as Anki shows it: right letters dim,
+    // wrong ones red, missing ones orange. StyledText.
+    function compare(typed: string, answer: string): string {
+        const t = Vocab.clean(typed);
+        const best = Vocab.accepted(answer).reduce((a, b) => Vocab.distance(t, b) < Vocab.distance(t, a) ? b : a);
+        // The edit table, then back through it.
+        const n = t.length, m = best.length;
+        const d = Array.from({ length: n + 1 }, (_, i) => Array.from({ length: m + 1 }, (_, j) => i + j));
+        for (let i = 1; i <= n; i++)
+            for (let j = 1; j <= m; j++)
+                d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (t[i - 1] === best[j - 1] ? 0 : 1));
+        const out = [];
+        const esc = c => c === "<" ? "&lt;" : c === ">" ? "&gt;" : c === "&" ? "&amp;" : c;
+        const paint = (c, colour) => `<font color="${colour}">${esc(c)}</font>`;
+        let i = n, j = m;
+        while (i > 0 || j > 0) {
+            if (i > 0 && j > 0 && d[i][j] === d[i - 1][j - 1] + (t[i - 1] === best[j - 1] ? 0 : 1)) {
+                out.unshift(t[i - 1] === best[j - 1] ? paint(t[i - 1], Config.colours.subtext) : paint(t[i - 1], Config.colours.red));
+                i--;
+                j--;
+            } else if (i > 0 && d[i][j] === d[i - 1][j] + 1) {
+                out.unshift(`<s>${paint(t[i - 1], Config.colours.red)}</s>`);
+                i--;
+            } else {
+                out.unshift(`<u>${paint(best[j - 1], Config.colours.orange)}</u>`);
+                j--;
+            }
+        }
+        return out.join("");
     }
 
     function focusInput(): void {
@@ -165,15 +196,17 @@ ColumnLayout {
 
             Text {
                 Layout.fillWidth: true
-                text: !root.item ? "Vocabulary" : `${root.item.dir === ">" ? "Translate" : "Translate back"}${root.hard ? ` · hard word, forgotten ${Vocab.sched[root.item.key]?.lapses ?? 0}×` : ""}`
-                color: root.hard ? Config.colours.red : Config.colours.subtext
+                text: !root.item ? "Vocabulary" : root.item.dir === ">" ? "Translate" : "Translate back"
+                color: Config.colours.subtext
                 font.family: Config.font.family
                 font.pointSize: Config.font.small
             }
 
+            // Left now, as Anki shows it: new, learning, to review.
             Text {
                 visible: root.manage
-                text: `${Vocab.dueCount} due · ${Vocab.newLeft} new · ${Vocab.cards.length} words`
+                textFormat: Text.StyledText
+                text: [[Vocab.newLeft, Config.colours.blue, "new"], [Vocab.learningCount, Config.colours.red, "learning"], [Vocab.reviewCount, Config.colours.green, "review"]].map(([n, c, what]) => `<font color="${n ? c : Config.colours.muted}">${n}</font> ${what}`).join(" · ")
                 color: Config.colours.subtext
                 font.family: Config.font.family
                 font.pointSize: Config.font.small
@@ -193,12 +226,24 @@ ColumnLayout {
             font.bold: root.item !== null
         }
 
+        // A leech, under its word.
+        Text {
+            Layout.fillWidth: true
+            Layout.topMargin: -8
+            visible: root.hard
+            horizontalAlignment: Text.AlignHCenter
+            text: `hard word · forgotten ${Vocab.sched[root.item?.key ?? ""]?.lapses ?? 0}×`
+            color: Config.colours.red
+            font.family: Config.font.family
+            font.pointSize: Config.font.small
+        }
+
         Text {
             Layout.fillWidth: true
             visible: !root.item
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.Wrap
-            text: Vocab.cards.length ? (Vocab.nextDue ? `The next word is due ${root.when(Vocab.nextDue)}` : "") : `Type +word = translation below, or add lines like that to ${Vocab.wordsPath.replace(Quickshell.env("HOME"), "~")}`
+            text: Vocab.cards.length ? [Vocab.todayAnswers.n ? `Today: ${Vocab.todayAnswers.n} answered, ${Math.round(Vocab.todayAnswers.r / Vocab.todayAnswers.n * 100)} % right` : "", Vocab.nextDue ? `The next word is due ${root.when(Vocab.nextDue)}` : ""].filter(x => x).join("\n") : `Type +word = translation below, or add lines like that to ${Vocab.wordsPath.replace(Quickshell.env("HOME"), "~")}`
             color: Config.colours.subtext
             font.family: Config.font.family
             font.pointSize: Config.font.small
@@ -250,15 +295,48 @@ ColumnLayout {
             font.pointSize: Config.font.small
         }
 
-        // After an answer judged wrong, in the pane: it was right after all (a synonym, say).
-        VocabOption {
-            Layout.alignment: Qt.AlignHCenter
+        // What was typed, against the answer.
+        Text {
+            Layout.fillWidth: true
             Layout.topMargin: -6
+            visible: root.phase === "wrong" && root.session.typedWrong !== "" && root.session.confused === null
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.Wrap
+            textFormat: Text.StyledText
+            text: visible ? `<font color="${Config.colours.subtext}">You typed </font>${root.compare(root.session.typedWrong, root.item.answer)}` : ""
+            font.family: Config.font.family
+            font.pointSize: Config.font.small
+        }
+
+        // After an answer judged wrong, in the pane: it was right after all (a synonym, say).
+        Rectangle {
+            Layout.alignment: Qt.AlignHCenter
             visible: root.manage && root.session.canOverrule
-            text: "\u{F012C} I got it right · Ctrl+Enter"
-            onClicked: {
-                root.session.overrule();
-                root.focusInput();
+            implicitWidth: overruleText.implicitWidth + 24
+            implicitHeight: 28
+            radius: height / 2
+            color: overruleArea.containsMouse ? Config.colours.buttonHover : Config.colours.button
+
+            Text {
+                id: overruleText
+
+                anchors.centerIn: parent
+                text: "\u{F012C} I got it right · Ctrl+Enter"
+                color: Config.colours.subtext
+                font.family: Config.font.family
+                font.pointSize: Config.font.small
+            }
+
+            MouseArea {
+                id: overruleArea
+
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: {
+                    root.session.overrule();
+                    root.focusInput();
+                }
             }
         }
 
@@ -277,20 +355,24 @@ ColumnLayout {
         }
 
         RowLayout {
-            Layout.alignment: Qt.AlignHCenter
+            Layout.fillWidth: true
             visible: root.phase === "rate"
-            spacing: 18
+            spacing: 8
 
             Repeater {
                 model: root.phase === "rate" ? root.session.choices() : []
 
-                VocabOption {
+                RateButton {
                     required property var modelData
                     required property int index
 
-                    text: `${index + 1} ${modelData.label} · ${modelData.when}`
-                    on: modelData.grade === 3
-                    font.pointSize: Config.font.size
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: 1
+                    key: index + 1
+                    label: modelData.label
+                    when: modelData.when
+                    tint: modelData.grade === 2 ? Config.colours.orange : modelData.grade === 3 ? Config.colours.green : Config.colours.blue
+                    chosen: modelData.grade === 3
                     onClicked: {
                         root.session.rate(modelData.grade);
                         root.focusInput();
@@ -377,7 +459,7 @@ ColumnLayout {
         // A hard word without mnemonics set up: how to keep one of one's own.
         Text {
             Layout.fillWidth: true
-            visible: root.manage && root.item !== null && root.phase !== "ask" && root.hard && !Mnemonic.configured
+            visible: root.manage && root.item !== null && root.phase !== "ask" && root.hard && !Mnemonic.configured && !(root.item?.card.mnemonic ?? "")
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.Wrap
             text: "Hard to remember? Type # and a mnemonic (a sentence with a word that sounds like it)"
@@ -496,7 +578,10 @@ ColumnLayout {
                     // number keeps that suggested mnemonic (Alt and a number always does).
                     const n = event.key - Qt.Key_1;
                     const alt = event.modifiers & Qt.AltModifier;
-                    if (root.phase === "rate" && !alt && input.text === "" && n >= 0 && n < 3) {
+                    if (event.key === Qt.Key_Z && event.modifiers & Qt.ControlModifier && input.text === "" && root.session.canUndo) {
+                        root.session.undoLast();
+                        event.accepted = true;
+                    } else if (root.phase === "rate" && !alt && input.text === "" && n >= 0 && n < 3) {
                         root.session.rate(n + 2);
                         event.accepted = true;
                     } else if (root.manage && root.suggested && (input.text === "" || alt) && n >= 0 && n < Mnemonic.suggestions.length) {
@@ -516,7 +601,7 @@ ColumnLayout {
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
                     visible: !input.text
-                    text: root.phase === "wrong" ? "Type it out to go on" : root.phase === "rate" ? "1 Hard · 2 Good · 3 Easy · Enter is Good" : root.item ? "Translation · Enter alone shows it" : root.manage ? "+word = translation" : ""
+                    text: root.phase === "wrong" ? "Type it out to go on" : root.phase === "rate" ? "Enter is Good" : root.item ? "Translation · Enter alone shows it" : root.manage ? "+word = translation" : ""
                     color: Config.colours.muted
                     font: input.font
                 }
@@ -544,7 +629,7 @@ ColumnLayout {
     RowLayout {
         Layout.fillWidth: true
         visible: root.manage
-        spacing: 16
+        spacing: 14
 
         Text {
             Layout.fillWidth: true
@@ -553,6 +638,17 @@ ColumnLayout {
             color: Config.colours.muted
             font.family: Config.font.family
             font.pointSize: Config.font.small
+        }
+
+        // Takes the last answer back, as Anki's undo.
+        VocabOption {
+            visible: root.session.canUndo
+            text: "\u{F054C} Undo"
+            on: true
+            onClicked: {
+                root.session.undoLast();
+                root.focusInput();
+            }
         }
 
         VocabOption {
