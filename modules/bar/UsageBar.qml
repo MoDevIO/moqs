@@ -4,6 +4,7 @@ import qs.config
 
 // Pill that fills from the left with usage (full = 100%), with its label in the centre.
 // The label is drawn twice, light over the track and dark over the fill, so it reads at any level.
+// Hovered, it shows the percentage instead.
 ClippingRectangle {
     id: root
 
@@ -14,13 +15,20 @@ ClippingRectangle {
     implicitWidth: 44
     implicitHeight: 16
     radius: height / 2
-    color: Config.colours.muted
+    color: Config.colours.buttonHover
+
+    MouseArea {
+        id: hover
+
+        anchors.fill: parent
+        hoverEnabled: true
+    }
 
     Text {
         id: light
 
         anchors.centerIn: parent
-        text: root.label
+        text: hover.containsMouse ? `${Math.round(root.level * 100)}%` : root.label
         color: Config.colours.text
         font.family: Config.font.sans
         font.pointSize: 7

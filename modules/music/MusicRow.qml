@@ -7,6 +7,8 @@ Rectangle {
     id: root
 
     property string cover
+    // The cover's place, with a placeholder when there's no cover, so rows line up.
+    property bool showCover: cover !== ""
     property string title
     property string subtitle
     property string trailing
@@ -42,7 +44,7 @@ Rectangle {
         Cover {
             Layout.preferredWidth: 32
             Layout.preferredHeight: 32
-            visible: root.cover !== ""
+            visible: root.showCover
             source: root.cover
         }
 

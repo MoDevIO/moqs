@@ -48,7 +48,8 @@ Singleton {
     }
 
     readonly property QtObject controlCentre: QtObject {
-        readonly property int width: 380
+        // Wide enough that the tiles' names (Bluetooth, Visualizer) and states fit.
+        readonly property int width: 440
         readonly property int padding: 12
         readonly property int spacing: 8
     }

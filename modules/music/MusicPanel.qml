@@ -490,6 +490,7 @@ Item {
                         MusicRow {
                             cover: Navidrome.coverUrl(entry.modelData.data.coverArt ?? "", 96)
                             title: entry.modelData.data.name
+                            showCover: true
                             subtitle: entry.modelData.data.albumCount ? `${entry.modelData.data.albumCount} album${entry.modelData.data.albumCount === 1 ? "" : "s"}` : "Artist"
                             onClicked: root.openArtist(entry.modelData.data.id)
                         }
@@ -501,6 +502,7 @@ Item {
                         MusicRow {
                             cover: Navidrome.coverUrl(entry.modelData.data.coverArt ?? "", 96)
                             title: entry.modelData.data.name
+                            showCover: true
                             subtitle: entry.modelData.data.artist ?? ""
                             trailing: entry.modelData.data.year ? `${entry.modelData.data.year}` : ""
                             onClicked: root.openAlbum(entry.modelData.data.id)
@@ -518,6 +520,7 @@ Item {
                             readonly property bool loose: !Navidrome.album || !!Navidrome.results
 
                             cover: loose ? Navidrome.coverUrl(song.coverArt ?? "", 96) : ""
+                            showCover: loose
                             title: loose ? song.title : `${song.track ?? entry.modelData.index + 1}. ${song.title}`
                             subtitle: loose ? `${song.artist ?? ""} · ${song.album ?? ""}` : (song.artist !== Navidrome.album?.artist ? song.artist ?? "" : "")
                             trailing: root.time(song.duration ?? 0)

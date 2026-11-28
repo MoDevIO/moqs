@@ -154,8 +154,8 @@ Item {
                 anchors.centerIn: parent
                 implicitSize: Config.workspaces.icon
                 source: ws.showIcon ? Quickshell.iconPath(ws.entry?.icon ?? ws.appClass, "application-x-executable") : ""
-                opacity: ws.showIcon ? (ws.active ? 1 : 0.45) : 0
-                scale: ws.showIcon ? (ws.active ? 1.15 : 0.8) : 0.5
+                opacity: ws.showIcon ? (ws.active ? 1 : 0.7) : 0
+                scale: ws.showIcon ? (ws.active ? 1.15 : 0.9) : 0.5
 
                 Behavior on opacity {
                     Anim {}

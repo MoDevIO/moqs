@@ -35,6 +35,8 @@ Singleton {
 
     readonly property string url: settings.url.replace(/\/+$/, "").replace(/\/chat\/completions$/, "")
     readonly property bool configured: url !== "" && settings.model !== ""
+    // The model asked; the launcher's assistant (Assistant) asks it too.
+    readonly property string model: settings.model
     readonly property string apiKey: settings.apiKey || commandKey
     property string commandKey
 

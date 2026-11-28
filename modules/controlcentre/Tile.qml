@@ -44,8 +44,8 @@ Rectangle {
     RowLayout {
         anchors.fill: parent
         anchors.leftMargin: 14
-        anchors.rightMargin: 12
-        spacing: 12
+        anchors.rightMargin: 10
+        spacing: 10
 
         Text {
             text: root.icon

@@ -15,8 +15,10 @@ A minimal [Quickshell](https://quickshell.org) shell for Hyprland. Black frame a
   qs ipc call volume release
   ```
   The same works with `brightness`. `release` hides the level right away; `up` and `down` without a `press` show it briefly.
-- CPU and RAM bars plus a battery icon on the right; clicking the battery shows its percentage and the time left (to empty, or to full while charging). Below 15 % on battery a notification says so, below 5 % an urgent one, each once until it's plugged in.
+- CPU and RAM bars (hover one for its percentage) plus a battery icon on the right; clicking the battery shows its percentage and the time left (to empty, or to full while charging). Below 15 % on battery a notification says so, below 5 % an urgent one, each once until it's plugged in.
 - **Microphone and camera in use:** while an app records from a microphone or has a camera open, an orange dot with a microphone or a camera shows left of the clock; hovered, the apps' names. Recording what plays (as the visualizer does) doesn't count. Apps that open the camera directly, as browsers do, are found too (checked every three seconds).
+- **Assistant:** in the launcher, Tab on what's typed asks the language model set up for mnemonics (`services.moqs.vocab.mnemonics`). It can run shell commands, open apps, list, focus, move and close windows, find and control Home Assistant entities, and list, read and send Matrix messages; each step shows in the launcher. Shell commands, closing windows, sending messages and unusual Home Assistant services wait for Enter (Esc says no). Enter or Tab sends a follow-up; closing the launcher ends the conversation.
+
 
 **Vocabulary**
 - The vocabulary lives on a [moqs-vocab](http://worker-03/) server, set with `services.moqs.vocab.server = "http://worker-03";` (or `"vocab": { "server": "…" }` in `settings.json`): words, schedule, settings, stats and the answer log are kept there, and scheduling and answer checking run there, so its web app and the shell are always the same (practising in one shows in the other at once). The shell follows the server's API and events. Mnemonic suggestions are still made here. If the server can't be reached, the pane says so, and the lock screen and games let you through rather than ask a word. Without a server set there are no words.

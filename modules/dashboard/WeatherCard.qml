@@ -59,7 +59,7 @@ Card {
 
                 Text {
                     Layout.fillWidth: true
-                    text: Weather.current ? Weather.describe(Weather.current.code) : ""
+                    text: Weather.current ? `${Weather.describe(Weather.current.code)} · feels ${Weather.degrees(Weather.current.feels)}` : ""
                     elide: Text.ElideRight
                     color: Config.colours.text
                     font.family: Config.font.family
@@ -69,7 +69,8 @@ Card {
 
                 Text {
                     Layout.fillWidth: true
-                    text: Weather.current ? `Feels ${Weather.degrees(Weather.current.feels)} · ${Math.round(Weather.current.wind)} km/h · ${Math.round(Weather.current.humidity)}%` : ""
+                    // Wind and humidity, each with its icon, so the line stays short.
+                    text: Weather.current ? `\u{F059D} ${Math.round(Weather.current.wind)} km/h  \u{F058E} ${Math.round(Weather.current.humidity)}%` : ""
                     elide: Text.ElideRight
                     color: Config.colours.subtext
                     font.family: Config.font.family

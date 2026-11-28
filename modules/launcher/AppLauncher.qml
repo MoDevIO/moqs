@@ -23,6 +23,9 @@ import qs.services
 //   , open windows by title or app, the last used first (Enter goes to it, Shift+Enter
 //     brings it here, Ctrl+Delete closes it)
 // ↑ in the empty field brings back what was run in a mode before, ↓ goes forward again.
+// Tab asks the assistant instead (Assistant: a language model that can run commands, open
+// apps, handle windows, Home Assistant and Matrix); its answer shows here, Enter or Tab sends
+// a follow-up, and what it can't undo waits for Enter (Esc says no).
 Item {
     id: root
 
@@ -332,6 +335,18 @@ Item {
         root.closed();
     }
 
+    // Enter: a yes for the assistant, a follow-up to it, or the result picked.
+    function enter(event: var): void {
+        if (Assistant.pending)
+            Assistant.confirm();
+        else if (assisting)
+            askAssistant();
+        else if (camera)
+            camera = "";
+        else
+            activate(shown[list.currentIndex], event.modifiers & Qt.ShiftModifier);
+    }
+
     // Moves a window to the workspace shown and focuses it.
     function bringHere(win: var): void {
         const ws = Hyprland.focusedMonitor?.activeWorkspace?.id;
@@ -500,7 +515,17 @@ Item {
         }
     }
 
+    // Talking to the assistant: its conversation shows in place of the results.
+    readonly property bool assisting: Assistant.active
+
+    function askAssistant(): void {
+        Assistant.ask(search.text);
+        search.text = "";
+    }
+
     onOpenChanged: {
+        if (!open)
+            Assistant.reset();
         if (open) {
             search.text = Launcher.initial;
             Launcher.initial = "";
@@ -597,8 +622,8 @@ Item {
                         if (!root.settingHistory)
                             root.historyAt = -1;
                     }
-                    Keys.onReturnPressed: event => root.camera ? root.camera = "" : root.activate(root.shown[list.currentIndex], event.modifiers & Qt.ShiftModifier)
-                    Keys.onEnterPressed: event => root.camera ? root.camera = "" : root.activate(root.shown[list.currentIndex], event.modifiers & Qt.ShiftModifier)
+                    Keys.onReturnPressed: event => root.enter(event)
+                    Keys.onEnterPressed: event => root.enter(event)
                     // ↑ in the empty field, and while stepping through it: the history.
                     Keys.onDownPressed: root.historyAt >= 0 ? root.browseHistory(-1) : list.incrementCurrentIndex()
                     Keys.onUpPressed: search.text === "" || root.historyAt >= 0 ? root.browseHistory(1) : list.decrementCurrentIndex()
@@ -609,18 +634,26 @@ Item {
                         else
                             event.accepted = false;
                     }
-                    Keys.onTabPressed: list.incrementCurrentIndex()
+                    // With something typed (not ";", whose card has its own Tab): the assistant.
+                    Keys.onTabPressed: root.mode !== "vocab" && Assistant.configured && (root.query !== "" || root.assisting) ? root.askAssistant() : list.incrementCurrentIndex()
                     Keys.onBacktabPressed: list.decrementCurrentIndex()
-                    Keys.onEscapePressed: root.camera ? root.camera = "" : root.closed()
+                    Keys.onEscapePressed: Assistant.pending ? Assistant.decline() : root.camera ? root.camera = "" : root.closed()
 
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
                         visible: !search.text
-                        text: "Search apps, rooms and files"
+                        text: Assistant.pending ? "Enter: yes · Esc: no" : root.assisting ? "Ask a follow-up · Enter" : Assistant.configured ? "Search apps, rooms and files · Tab asks AI" : "Search apps, rooms and files"
                         color: Config.colours.muted
                         font: search.font
                     }
                 }
+            }
+
+            AssistantView {
+                Layout.fillWidth: true
+                Layout.leftMargin: 6
+                Layout.rightMargin: 6
+                visible: root.assisting
             }
 
             VocabQuiz {
@@ -711,7 +744,7 @@ Item {
 
                 Layout.fillWidth: true
                 Layout.preferredHeight: Math.min(count, Config.launcher.shown) * root.rowHeight + Math.max(0, Math.min(count, Config.launcher.shown) - 1) * spacing
-                visible: count > 0 && !root.camera
+                visible: count > 0 && !root.camera && !root.assisting
                 clip: true
                 spacing: 2
                 boundsBehavior: Flickable.StopAtBounds
@@ -831,19 +864,25 @@ Item {
             Text {
                 Layout.fillWidth: true
                 Layout.leftMargin: 14
-                visible: list.count === 0 && root.mode !== "vocab"
+                visible: list.count === 0 && root.mode !== "vocab" && !root.assisting
                 text: root.mode === "file" ? "No recent files match" : "Nothing matches"
                 color: Config.colours.subtext
                 font.family: Config.font.family
                 font.pointSize: Config.font.small
             }
 
-            // What the first characters do, while nothing is typed.
+            // What the first characters do, while nothing is typed: wrapping onto a second
+            // line rather than running off the edges.
             Text {
                 Layout.fillWidth: true
-                visible: root.query === ""
+                Layout.leftMargin: 10
+                Layout.rightMargin: 10
+                visible: root.query === "" && !root.assisting
                 horizontalAlignment: Text.AlignHCenter
-                text: "= calc/timer   ! run   > home   ? web   : emoji   ; words   / files   # nixpkgs   @ reply"
+                wrapMode: Text.Wrap
+                textFormat: Text.StyledText
+                lineHeight: 1.3
+                text: [["Tab", "ask AI"], ["=", "calc, timer"], ["!", "run"], [">", "home"], ["?", "web"], [":", "emoji"], [";", "words"], ["/", "files"], ["#", "nixpkgs"], ["@", "reply"], [",", "windows"]].map(([p, what]) => `<font color="${Config.colours.subtext}">${p}</font>&nbsp;${what}`).join("&nbsp;&nbsp;&nbsp; ")
                 color: Config.colours.muted
                 font.family: Config.font.family
                 font.pointSize: Config.font.small
