@@ -7,7 +7,8 @@ import qs.config
 
 // Mnemonics for vocabulary, suggested by a language model behind an OpenAI-compatible
 // chat completions API (a local llama.cpp, Ollama or vLLM server, or any hosted one).
-// Settings come from mnemonics.json next to shell.qml:
+// Settings come from ai.json next to shell.qml (services.moqs.ai; the launcher's Assistant
+// uses them too):
 //   { "url": "http://localhost:11434/v1", "model": "llama3.1:8b",
 //     "apiKeyCommand": "pass show llm", "language": "German", "prepareModel": "" }
 // "apiKey" works instead of "apiKeyCommand"; neither is needed for a server without keys.
@@ -455,7 +456,7 @@ Singleton {
     }
 
     FileView {
-        path: Quickshell.shellPath("mnemonics.json")
+        path: Quickshell.shellPath("ai.json")
         watchChanges: true
         printErrors: false
         onFileChanged: reload()

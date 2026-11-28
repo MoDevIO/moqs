@@ -158,8 +158,8 @@ in
     '';
   };
 
-  vocab.mnemonics = {
-    enable = mkEnableOption "mnemonics for hard vocabulary words, suggested by a language model behind an OpenAI-compatible API";
+  ai = {
+    enable = mkEnableOption "a language model behind an OpenAI-compatible API, for the launcher's assistant (Tab) and mnemonics for hard vocabulary words";
 
     url = mkOption {
       type = types.str;
@@ -170,7 +170,7 @@ in
     model = mkOption {
       type = types.str;
       example = "llama3.1:8b";
-      description = "The model to ask.";
+      description = "The model to ask (by the assistant, and for mnemonics).";
     };
 
     apiKeyFile = mkOption {

@@ -85,25 +85,25 @@ let
         )
       } $out/hass.json
     ''}
-    ${lib.optionalString cfg.vocab.mnemonics.enable ''
+    ${lib.optionalString cfg.ai.enable ''
       cp ${
-        pkgs.writeText "mnemonics.json" (
+        pkgs.writeText "ai.json" (
           builtins.toJSON (
             {
-              inherit (cfg.vocab.mnemonics)
+              inherit (cfg.ai)
                 url
                 model
                 language
                 prepareModel
                 ;
             }
-            // lib.optionalAttrs (cfg.vocab.mnemonics.apiKeyCommand != null) { inherit (cfg.vocab.mnemonics) apiKeyCommand; }
-            // lib.optionalAttrs (cfg.vocab.mnemonics.apiKeyFile != null) {
-              apiKeyCommand = "cat ${lib.escapeShellArg cfg.vocab.mnemonics.apiKeyFile}";
+            // lib.optionalAttrs (cfg.ai.apiKeyCommand != null) { inherit (cfg.ai) apiKeyCommand; }
+            // lib.optionalAttrs (cfg.ai.apiKeyFile != null) {
+              apiKeyCommand = "cat ${lib.escapeShellArg cfg.ai.apiKeyFile}";
             }
           )
         )
-      } $out/mnemonics.json
+      } $out/ai.json
     ''}
     ${lib.optionalString cfg.weather.enable ''
       cp ${
@@ -132,9 +132,10 @@ let
     ];
 in
 {
-  # Renamed from vocab.aids; the old name still works, with a warning.
+  # Renamed from vocab.aids and then vocab.mnemonics; the old names still work, with a warning.
   imports = [
-    (lib.mkRenamedOptionModule [ "services" "moqs" "vocab" "aids" ] [ "services" "moqs" "vocab" "mnemonics" ])
+    (lib.mkRenamedOptionModule [ "services" "moqs" "vocab" "aids" ] [ "services" "moqs" "ai" ])
+    (lib.mkRenamedOptionModule [ "services" "moqs" "vocab" "mnemonics" ] [ "services" "moqs" "ai" ])
   ];
 
   options.services.moqs = import ./options.nix { inherit lib; } // {
@@ -179,9 +180,9 @@ in
             (oneOf "webuntis" "school" cfg.webuntis.school cfg.webuntis.schoolFile)
           ]
           ++ lib.optional cfg.weather.enable (oneOf "weather" "location" cfg.weather.location cfg.weather.locationFile)
-          ++ lib.optional cfg.vocab.mnemonics.enable {
-            assertion = cfg.vocab.mnemonics.apiKeyFile == null || cfg.vocab.mnemonics.apiKeyCommand == null;
-            message = "services.moqs.vocab.mnemonics: set at most one of apiKeyFile or apiKeyCommand.";
+          ++ lib.optional cfg.ai.enable {
+            assertion = cfg.ai.apiKeyFile == null || cfg.ai.apiKeyCommand == null;
+            message = "services.moqs.ai: set at most one of apiKeyFile or apiKeyCommand.";
           };
 
         programs.quickshell = {

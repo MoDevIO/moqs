@@ -77,9 +77,10 @@ let
   ];
 in
 {
-  # Renamed from vocab.aids; the old name still works, with a warning.
+  # Renamed from vocab.aids and then vocab.mnemonics; the old names still work, with a warning.
   imports = [
-    (lib.mkRenamedOptionModule [ "services" "moqs" "vocab" "aids" ] [ "services" "moqs" "vocab" "mnemonics" ])
+    (lib.mkRenamedOptionModule [ "services" "moqs" "vocab" "aids" ] [ "services" "moqs" "ai" ])
+    (lib.mkRenamedOptionModule [ "services" "moqs" "vocab" "mnemonics" ] [ "services" "moqs" "ai" ])
   ];
 
   options.services.moqs = import ./options.nix { inherit lib; } // {
@@ -119,9 +120,12 @@ in
           "user"
           "greeter"
         ]
-        # Without the old name's alias, which Home Manager has as well.
+        # Without the old names' aliases, which Home Manager has as well.
         // {
-          vocab = builtins.removeAttrs cfg.vocab [ "aids" ];
+          vocab = builtins.removeAttrs cfg.vocab [
+            "aids"
+            "mnemonics"
+          ];
         };
       };
     })

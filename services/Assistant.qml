@@ -6,7 +6,7 @@ import Quickshell.Hyprland
 import Quickshell.Io
 
 // The launcher's assistant: Tab on what's typed asks the language model set up for mnemonics
-// (Mnemonic: mnemonics.json, the same OpenAI-compatible API and model), which can use tools:
+// (services.moqs.ai, ai.json, read by Mnemonic: the same OpenAI-compatible API and model), which can use tools:
 // run shell commands, open apps, list, focus, move and close windows (Hyprland), find and
 // control Home Assistant entities, and list, read and send Matrix messages. Its answer, and
 // each tool it uses, show in the launcher; a follow-up continues the conversation until the
@@ -90,7 +90,7 @@ Singleton {
         if (!text || busy)
             return;
         if (!configured) {
-            show({ kind: "error", text: "No language model is set up (services.moqs.vocab.mnemonics)" });
+            show({ kind: "error", text: "No language model is set up (services.moqs.ai)" });
             return;
         }
         if (!messages.length)

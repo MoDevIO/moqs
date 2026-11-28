@@ -17,7 +17,7 @@ A minimal [Quickshell](https://quickshell.org) shell for Hyprland. Black frame a
   The same works with `brightness`. `release` hides the level right away; `up` and `down` without a `press` show it briefly.
 - CPU and RAM bars (hover one for its percentage) plus a battery icon on the right; clicking the battery shows its percentage and the time left (to empty, or to full while charging). Below 15 % on battery a notification says so, below 5 % an urgent one, each once until it's plugged in.
 - **Microphone and camera in use:** while an app records from a microphone or has a camera open, an orange dot with a microphone or a camera shows left of the clock; hovered, the apps' names. Recording what plays (as the visualizer does) doesn't count. Apps that open the camera directly, as browsers do, are found too (checked every three seconds).
-- **Assistant:** in the launcher, Tab on what's typed asks the language model set up for mnemonics (`services.moqs.vocab.mnemonics`). It can run shell commands, open apps, list, focus, move and close windows, find and control Home Assistant entities, and list, read and send Matrix messages; each step shows in the launcher. Shell commands, closing windows, sending messages and unusual Home Assistant services wait for Enter (Esc says no). Enter or Tab sends a follow-up; closing the launcher ends the conversation.
+- **Assistant:** in the launcher, Tab on what's typed asks the language model set up in `services.moqs.ai`. It can run shell commands, open apps, list, focus, move and close windows, find and control Home Assistant entities, and list, read and send Matrix messages; each step shows in the launcher. Shell commands, closing windows, sending messages and unusual Home Assistant services wait for Enter (Esc says no). Enter or Tab sends a follow-up; closing the launcher ends the conversation.
 
 
 **Vocabulary**
@@ -28,7 +28,7 @@ A minimal [Quickshell](https://quickshell.org) shell for Hyprland. Black frame a
 - Due words come first, then up to 20 new ones a day (once you're caught up, holding **Learn more** for three seconds gives another 20), in the list's order or, with **Random** at the bottom of the pane, at random. A word is asked as written (word → translation); **Both ways** asks it the other way round too.
 - Words are in the server's `vocab.txt`, one per line as `word = translation` (tab-separated lines, as Anki exports them, work too). `,`, `/` or `;` separates answers that each count (not inside brackets), a part in brackets may be left out, and German nouns count without their article: `currere = (schnell) laufen, rennen`, `silentium = die Ruhe, die Stille`. Umlauts count however they're typed (`schön`, `schoen`, `schon`), and missing accents or one typo in a longer word count too, with the right spelling shown. In the pane, `+word = translation` adds one and Ctrl+Delete removes the one shown. The schedule is kept in `vocab.json` beside it, on the server.
 - A line may end in a note after ` # `, e.g. grammar: `dux = der Führer # (Gen. Sg.:) ducis · (m)`. It shows under the answer once you've answered. A comment line such as `# Lektion 3` heads the words below it.
-- **Hard words:** a word forgotten in reviews eight times, a leech as Anki calls it, is marked in red while it's asked, with how often you've forgotten it. Once it's answered, the pane offers to keep a mnemonic with it: type `#` and the mnemonic (a sentence with a word that sounds like it), and it's added to the word's line in `vocab.txt` as ` # mnemonic: …` (the older ` # aid: …` still works) (after its note, which stays), shown with the answer from then on (`#` alone removes it). With `services.moqs.vocab.mnemonics` set up, a language model behind an OpenAI-compatible API (Ollama, llama.cpp, vLLM, or a hosted one) suggests four once a word is answered, on a click or **Tab**: an English or German word from the same root when there is one (restituere: restore), and short scenes where an everyday German word that sounds like the start of the word meets its main meaning ("Ich zeige auf ein Monster", monstrare = zeigen; "Ich werfe sofort Konfetti", cōnfestim = sofort). The shell finds the sound-alike words itself (from a list of common German words, by a rough sound spelling: Latin read as at school, v as w, c as k or z), since a language model can't hear what words sound like; the model only builds the pictures. After a mix-up, one tells the two apart. Ones without the word's meaning in them are dropped. For words forgotten three times or more (`prepareMisses` in `config/Config.qml`) they're prepared ahead in the background, one word every half minute or so, saved in `$XDG_STATE_HOME/moqs/mnemonics-cache.json`; those show at once ("Mnemonics ready"). A click or **1–4** keeps one, **Other ideas** (or Tab again) asks again with other sound-alikes and the ones turned down so far, Enter goes on. Only the word, its translation and note, the sound-alike words, the mnemonics you kept lately (as examples of your taste) and the word it was mixed up with are sent to the model. Every reply (with the sound-alikes given, what the model wrote and what was shown), prepared suggestions shown, and every mnemonic kept, picked or typed, goes to `$XDG_STATE_HOME/moqs/mnemonics-log.jsonl`, for seeing later what works. Stats lists the hard words, most missed first (all of them with `qs ipc call vocab hardWords`). A word stops counting as hard after three reviews right in a row.
+- **Hard words:** a word forgotten in reviews eight times, a leech as Anki calls it, is marked in red while it's asked, with how often you've forgotten it. Once it's answered, the pane offers to keep a mnemonic with it: type `#` and the mnemonic (a sentence with a word that sounds like it), and it's added to the word's line in `vocab.txt` as ` # mnemonic: …` (the older ` # aid: …` still works) (after its note, which stays), shown with the answer from then on (`#` alone removes it). With `services.moqs.ai` set up, a language model behind an OpenAI-compatible API (Ollama, llama.cpp, vLLM, or a hosted one) suggests four once a word is answered, on a click or **Tab**: an English or German word from the same root when there is one (restituere: restore), and short scenes where an everyday German word that sounds like the start of the word meets its main meaning ("Ich zeige auf ein Monster", monstrare = zeigen; "Ich werfe sofort Konfetti", cōnfestim = sofort). The shell finds the sound-alike words itself (from a list of common German words, by a rough sound spelling: Latin read as at school, v as w, c as k or z), since a language model can't hear what words sound like; the model only builds the pictures. After a mix-up, one tells the two apart. Ones without the word's meaning in them are dropped. For words forgotten three times or more (`prepareMisses` in `config/Config.qml`) they're prepared ahead in the background, one word every half minute or so, saved in `$XDG_STATE_HOME/moqs/mnemonics-cache.json`; those show at once ("Mnemonics ready"). A click or **1–4** keeps one, **Other ideas** (or Tab again) asks again with other sound-alikes and the ones turned down so far, Enter goes on. Only the word, its translation and note, the sound-alike words, the mnemonics you kept lately (as examples of your taste) and the word it was mixed up with are sent to the model. Every reply (with the sound-alikes given, what the model wrote and what was shown), prepared suggestions shown, and every mnemonic kept, picked or typed, goes to `$XDG_STATE_HOME/moqs/mnemonics-log.jsonl`, for seeing later what works. Stats lists the hard words, most missed first (all of them with `qs ipc call vocab hardWords`). A word stops counting as hard after three reviews right in a row.
 - Every answer is appended to the server's `vocab-log.jsonl`, one JSON object a line: the word, what you typed, right or not, the grade, how long until the first key, mix-ups, and the schedule before and after. "I got it right" adds a line pointing at the answer it overrules. It's there to tune the scheduler to your memory later.
 - **Stats** at the bottom of the pane shows, in place of the card: words seen and learnt (remembered three weeks or more), the streak of days with answers, how many were right in the last 7 days, the words due on each of the next 7 days, and each lesson's progress.
 - While words are due, their number shows to the right of the clock; a click opens the pane.
@@ -149,8 +149,8 @@ The flake has a Home Manager module and a NixOS wrapper around it, both configur
       location = "Frankfurt, DE"; # or a GeoNames ID like "2925533", or "50.11,8.68"
     };
 
-    vocab.mnemonics = {
-      enable = true;
+    ai = {
+      enable = true; # the launcher's assistant (Tab) and vocabulary mnemonics
       url = "http://localhost:11434/v1"; # any OpenAI-compatible API, before /chat/completions
       model = "llama3.1:8b";
       apiKeyCommand = "pass show llm"; # or apiKeyFile; leave both out if the server needs no key
@@ -192,7 +192,7 @@ This needs the Home Manager NixOS module as well. The settings are passed on to 
   services.moqs = {
     enable = true;
     user = "alice";
-    # navidrome = { … }; matrix = { … }; webuntis = { … }; weather = { … }; hass = { … }; vocab.mnemonics = { … }; as above
+    # navidrome = { … }; matrix = { … }; webuntis = { … }; weather = { … }; hass = { … }; ai = { … }; as above
   };
 }
 ```
@@ -202,7 +202,7 @@ Don't put `homeManagerModules.default` in a NixOS module list. It stops with an 
 ### What the module does
 
 - Turns on `programs.quickshell`, started from `hyprland-session.target`. Change the target with `services.moqs.systemdTarget`.
-- Installs the shell to `~/.config/quickshell`, together with `settings.json`, `airdrop.json`, `navidrome.json`, `matrix.json`, `webuntis.json`, `weather.json`, `hass.json` and `mnemonics.json` generated from your settings.
+- Installs the shell to `~/.config/quickshell`, together with `settings.json`, `airdrop.json`, `navidrome.json`, `matrix.json`, `webuntis.json`, `weather.json`, `hass.json` and `ai.json` generated from your settings.
 - Installs the programs the shell runs:
   - always: `brightnessctl`, `cliphist`, `curl`, `libnotify` and `wl-clipboard`
   - with Navidrome enabled: `mpv`, plus [mpv-mpris](https://github.com/hoyon/mpv-mpris) loaded into the shell's own mpv
@@ -252,12 +252,12 @@ Other settings you'd rather keep out of the store too can come from files read a
 | `hass.tokenFile` / `tokenCommand` | `null` | Long-lived access token (profile page → Security) |
 | `hass.sections` | `[]` | What the card shows; see [Home Assistant card](#home-assistant-card) |
 | `vocab.server` | `null` | The moqs-vocab server the vocabulary lives on, e.g. `http://worker-03` |
-| `vocab.mnemonics.enable` | `false` | Mnemonics for hard vocabulary words from a language model (`vocab.aids` still works) |
-| `vocab.mnemonics.url` | (none) | OpenAI-compatible API, e.g. `http://localhost:11434/v1` |
-| `vocab.mnemonics.model` | (none) | Model to ask |
-| `vocab.mnemonics.apiKeyFile` / `apiKeyCommand` | `null` | API key, if the server needs one |
-| `vocab.mnemonics.language` | `""` | Language of the mnemonics; empty: the translations' |
-| `vocab.mnemonics.prepareModel` | `""` | Model for suggestions prepared ahead for often-missed words; empty: `model` |
+| `ai.enable` | `false` | A language model for the launcher's assistant and vocabulary mnemonics (`vocab.mnemonics` and `vocab.aids` still work) |
+| `ai.url` | (none) | OpenAI-compatible API, e.g. `http://localhost:11434/v1` |
+| `ai.model` | (none) | Model to ask |
+| `ai.apiKeyFile` / `apiKeyCommand` | `null` | API key, if the server needs one |
+| `ai.language` | `""` | Language of the mnemonics; empty: the translations' |
+| `ai.prepareModel` | `""` | Model for suggestions prepared ahead for often-missed words; empty: `model` |
 
 ### Login screen
 
@@ -347,7 +347,7 @@ Without the Nix module, put the panel settings next to `shell.qml`. These files 
 // weather.json: a place name, a GeoNames ID ("2925533") or "latitude,longitude"
 { "location": "Frankfurt, DE" }
 
-// mnemonics.json: mnemonics for vocabulary; "apiKey" or "apiKeyCommand" if the server needs one
+// ai.json: the language model for the assistant and vocabulary mnemonics; "apiKey" or "apiKeyCommand" if the server needs one
 { "url": "http://localhost:11434/v1", "model": "llama3.1:8b", "language": "German" }
 
 // hass.json: the card's layout is described below
